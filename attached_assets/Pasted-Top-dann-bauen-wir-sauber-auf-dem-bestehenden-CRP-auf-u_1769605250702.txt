@@ -1,0 +1,268 @@
+Top – dann bauen wir sauber auf dem bestehenden CRP auf und ergänzen ein eigenständiges, professionelles Admin-Planungsmodul.
+Hier ist der separate CRP für die Erweiterung „TSV Fußball-Jahres- & Platzplanung (Admin-only)“.
+
+⸻
+
+📌 Creative Requirements Plan (CRP)
+
+Admin-Planungsmodul – TSV Greding Fußballabteilung
+
+(Erweiterung zur bestehenden Website, losgelöst von der Bestellseite, ausschließlich für Admins)
+
+⸻
+
+1) Ziel & Zweck
+
+Ziel ist der Aufbau eines zentralen, visuellen Planungs- und Steuerungstools für die Fußballabteilung des TSV Greding, das:
+	•	alle fußballrelevanten Termine eines Jahres bündelt
+	•	automatisch Spieltermine vom BFV importiert
+	•	Platzbelegungen (A- & B-Platz) erkennt und visualisiert
+	•	Überschneidungen & Konflikte früh sichtbar macht
+	•	ausschließlich für Admins / Verantwortliche zugänglich ist
+
+👉 Ziel ist operative Entlastung, nicht nur Dokumentation.
+
+⸻
+
+2) Zugriff & Rollen
+
+🔐 Zugriff
+	•	Nur eingeloggte Admins
+	•	Kein Frontend-Zugriff für Mitglieder
+	•	Trennung:
+	•	Öffentliche Website
+	•	Interner Admin-Planungsbereich
+
+👥 Rollen (optional erweiterbar)
+	•	Super-Admin (alles)
+	•	Fußball-Admin (Kalender, Plätze)
+	•	Read-Only (Trainer, Orga)
+
+⸻
+
+3) Kernfunktion: Jahreskalender (Zentralansicht)
+
+🗓️ Jahresübersicht – „Großkalender“
+
+Eine Seite, ein kompletter Überblick
+
+Darstellung:
+	•	12 Monate in Rasterform
+	•	Jeder Tag als Zelle
+	•	Farbcodierte Termine
+
+Terminarten (farblich unterscheidbar):
+	•	Spiele (BFV)
+	•	Training
+	•	Turniere
+	•	Vereinsveranstaltungen
+	•	Platzsperren / Pflege
+	•	Sonstige Termine
+
+👉 Ziel: „Ich sehe auf einen Blick das ganze Jahr.“
+
+⸻
+
+4) Automatischer BFV-Import
+
+🔄 Datenquelle
+	•	Import über:
+	•	BFV-Schnittstelle oder
+	•	definierte Spiel-URLs / Kalenderfeeds, die der Admin vorgibt
+
+📥 Import-Logik
+
+Der Admin kann festlegen:
+	•	Saison / Jahr (z. B. 2026)
+	•	Mannschaften:
+	•	Herren
+	•	A- bis G-Jugend
+	•	Wettbewerbe (Liga, Pokal)
+
+🧠 Automatische Analyse je Termin
+
+Aus jedem BFV-Termin werden gelesen:
+	•	Datum
+	•	Uhrzeit
+	•	Mannschaft
+	•	Heim / Auswärts
+	•	Spielort
+	•	Platzbezeichnung (falls vorhanden)
+
+⸻
+
+5) Platz-Erkennung & Zuordnung
+
+⚽ Platzlogik
+
+Das System erkennt:
+	•	Heimspiel → Platzbelegung relevant
+	•	Auswärtsspiel → keine Platzbelegung
+
+🏟️ Platzmapping (konfigurierbar)
+
+Admin kann definieren:
+	•	„Herren Heimspiel“ → A-Platz
+	•	„Jugend Heimspiel“ → B-Platz
+	•	Sonderregeln:
+	•	Turniere
+	•	Doppelbelegung
+	•	manuelle Übersteuerung
+
+👉 Wichtig: Automatik + manuelle Korrektur möglich
+
+⸻
+
+6) Wochenübersicht – Platzbelegung (A & B)
+
+📊 Platzbelegungs-View
+
+Separate Ansicht neben dem Jahreskalender:
+
+Aufbau:
+	•	Spalten:
+	•	A-Platz
+	•	B-Platz
+	•	Zeilen:
+	•	Uhrzeiten (z. B. 08:00–22:00)
+	•	Ansicht:
+	•	Tages- oder Wochenansicht
+
+🔎 Anzeige
+	•	Welche Mannschaft
+	•	Spiel / Training / Event
+	•	Zeitraum
+	•	Konfliktmarkierung (rot)
+
+👉 Ziel: „Wer ist wann wo?“ – ohne Nachdenken.
+
+⸻
+
+7) Konflikt- & Warnsystem
+
+⚠️ Automatische Warnungen bei:
+	•	Doppelbelegung eines Platzes
+	•	Überschneidung Spiel vs. Training
+	•	Platzpflege kollidiert mit Spiel
+	•	Parallelspiele bei zu wenig Platzkapazität
+
+🧩 Handlungsmöglichkeiten
+	•	Termin verschieben
+	•	Platz wechseln
+	•	Ausnahme genehmigen
+
+⸻
+
+8) Manuelle Planung & Ergänzungen
+
+Nicht alles kommt vom BFV – daher:
+
+✍️ Manuell anlegbar:
+	•	Trainingszeiten
+	•	Freundschaftsspiele
+	•	Turniere
+	•	Sonderveranstaltungen
+	•	Platzsperren (Wetter, Pflege)
+
+Alle manuellen Termine:
+	•	sind visuell unterscheidbar
+	•	können BFV-Termine übersteuern oder ergänzen
+
+⸻
+
+9) Filter & Steuerung
+
+🎛️ Filteroptionen:
+	•	Mannschaft
+	•	Jugend / Herren
+	•	Platz
+	•	Terminart
+	•	Zeitraum
+
+🔍 Use-Case:
+
+„Zeig mir nur B-Platz, E- bis C-Jugend, März–Mai“
+
+⸻
+
+10) Export & Weiterverwendung
+
+📤 Export-Optionen:
+	•	PDF (Jahresübersicht)
+	•	PDF (Wochen-Platzplan)
+	•	Excel / CSV
+	•	iCal-Export (optional)
+
+👉 Ideal für:
+	•	Platzwarte
+	•	Gemeinde
+	•	Trainer
+
+⸻
+
+11) Technische Anforderungen (High-Level)
+
+⚙️ Architektur
+	•	Eigenes Modul im Admin-Backend
+	•	Entkoppelt von:
+	•	Bestellplattform
+	•	öffentlichem Content
+
+🔐 Sicherheit
+	•	Rollenbasierte Rechte
+	•	DSGVO-konform
+	•	Änderungs-Log (wer hat was geändert)
+
+⸻
+
+12) UX-Leitlinie
+	•	Groß, klar, übersichtlich
+	•	Wenig Klicks
+	•	Keine Textwüsten
+	•	Farben statt Tabellen, wo sinnvoll
+	•	Desktop-optimiert (Admin-Use-Case)
+
+⸻
+
+13) Erfolgskriterien
+
+Das Modul ist erfolgreich, wenn:
+	•	❌ Excel-Pläne überflüssig werden
+	•	❌ Platzkonflikte „überraschend“ auftreten
+	•	✅ Planungen monatelang im Voraus sichtbar sind
+	•	✅ Trainer & Orga weniger Rückfragen haben
+
+⸻
+
+14) Optionale Erweiterungen (Future-Scope)
+	•	Trainer-Benachrichtigungen
+	•	Platz-Status (bespielbar / gesperrt)
+	•	Mobile Admin-Light-View
+	•	Anbindung an Vereins-App
+
+⸻
+
+🧠 Zusammenfassung
+
+Dieses Modul macht aus der Website:
+
+❌ keine reine Info-Seite
+✅ ein echtes Steuerungs- & Planungsinstrument
+
+Gerade für:
+	•	Jugendkoordination
+	•	Platzmanagement
+	•	Spiel- & Trainingsorganisation
+
+⸻
+
+Nächster sinnvoller Schritt (Empfehlung)
+
+Ich kann dir als Nächstes:
+	•	🧩 Wireframe (Jahreskalender + Platzansicht)
+	•	🧠 Datenmodell (Termine, Plätze, Teams)
+	•	🧑‍💻 technisches Umsetzungskonzept (WordPress / Custom)
+
+bauen.
+
+Sag mir, was du zuerst sehen willst – dann gehen wir eine Ebene tiefer.

@@ -8,6 +8,12 @@ import {
   type Order,
   type InsertOrder,
   type OrderItem,
+  type CalendarEvent,
+  type InsertCalendarEvent,
+  type FieldMapping,
+  type InsertFieldMapping,
+  type BfvImportConfig,
+  type InsertBfvImportConfig,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -41,6 +47,28 @@ export interface IStorage {
   getOrdersByCampaign(campaignId: string): Promise<Order[]>;
   getOrder(id: string): Promise<Order | undefined>;
   createOrder(order: InsertOrder): Promise<Order>;
+
+  // Calendar Events
+  getAllCalendarEvents(): Promise<CalendarEvent[]>;
+  getCalendarEventsByDateRange(startDate: string, endDate: string): Promise<CalendarEvent[]>;
+  getCalendarEventsByField(field: string, startDate: string, endDate: string): Promise<CalendarEvent[]>;
+  getCalendarEvent(id: string): Promise<CalendarEvent | undefined>;
+  createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
+  updateCalendarEvent(id: string, event: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
+  deleteCalendarEvent(id: string): Promise<boolean>;
+
+  // Field Mappings
+  getAllFieldMappings(): Promise<FieldMapping[]>;
+  createFieldMapping(mapping: InsertFieldMapping): Promise<FieldMapping>;
+  updateFieldMapping(id: string, mapping: Partial<InsertFieldMapping>): Promise<FieldMapping | undefined>;
+  deleteFieldMapping(id: string): Promise<boolean>;
+
+  // BFV Import Config
+  getAllBfvImportConfigs(): Promise<BfvImportConfig[]>;
+  getBfvImportConfig(id: string): Promise<BfvImportConfig | undefined>;
+  createBfvImportConfig(config: InsertBfvImportConfig): Promise<BfvImportConfig>;
+  updateBfvImportConfig(id: string, config: Partial<InsertBfvImportConfig>): Promise<BfvImportConfig | undefined>;
+  deleteBfvImportConfig(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -48,6 +76,9 @@ export class MemStorage implements IStorage {
   private products: Map<string, Product>;
   private campaigns: Map<string, Campaign>;
   private orders: Map<string, Order>;
+  private calendarEvents: Map<string, CalendarEvent>;
+  private fieldMappings: Map<string, FieldMapping>;
+  private bfvImportConfigs: Map<string, BfvImportConfig>;
   private adminPassword: string;
 
   constructor() {
@@ -55,10 +86,15 @@ export class MemStorage implements IStorage {
     this.products = new Map();
     this.campaigns = new Map();
     this.orders = new Map();
+    this.calendarEvents = new Map();
+    this.fieldMappings = new Map();
+    this.bfvImportConfigs = new Map();
     this.adminPassword = "12345"; // Default admin password
 
     // Add sample products for demonstration
     this.initializeSampleData();
+    this.initializeDefaultFieldMappings();
+    this.initializeSampleCalendarEvents();
   }
 
   // Admin password
@@ -141,6 +177,84 @@ export class MemStorage implements IStorage {
     };
 
     this.campaigns.set(sampleCampaign.id, sampleCampaign);
+  }
+
+  private initializeDefaultFieldMappings() {
+    const mappings: FieldMapping[] = [
+      { id: randomUUID(), team: "herren", eventType: "spiel", defaultField: "a-platz" },
+      { id: randomUUID(), team: "herren", eventType: "training", defaultField: "a-platz" },
+      { id: randomUUID(), team: "herren2", eventType: "spiel", defaultField: "a-platz" },
+      { id: randomUUID(), team: "a-jugend", eventType: "spiel", defaultField: "a-platz" },
+      { id: randomUUID(), team: "b-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "c-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "d-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "e-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "f-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "g-jugend", eventType: "spiel", defaultField: "b-platz" },
+    ];
+    mappings.forEach((m) => this.fieldMappings.set(m.id, m));
+  }
+
+  private initializeSampleCalendarEvents() {
+    const today = new Date();
+    const events: CalendarEvent[] = [
+      {
+        id: randomUUID(),
+        title: "Herren vs. FC Musterstadt",
+        type: "spiel",
+        team: "herren",
+        field: "a-platz",
+        date: new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        startTime: "15:00",
+        endTime: "17:00",
+        isHomeGame: true,
+        opponent: "FC Musterstadt",
+        competition: "Kreisliga",
+        bfvImported: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        title: "Herren Training",
+        type: "training",
+        team: "herren",
+        field: "a-platz",
+        date: new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        startTime: "19:00",
+        endTime: "21:00",
+        bfvImported: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        title: "D-Jugend Training",
+        type: "training",
+        team: "d-jugend",
+        field: "b-platz",
+        date: new Date(today.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        startTime: "17:00",
+        endTime: "18:30",
+        bfvImported: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        title: "Platzsperrung - Rasenpflege",
+        type: "platzsperrung",
+        field: "a-platz",
+        date: new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        startTime: "08:00",
+        endTime: "18:00",
+        description: "Jährliche Rasenpflege",
+        bfvImported: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    events.forEach((e) => this.calendarEvents.set(e.id, e));
   }
 
   // Users
@@ -255,6 +369,120 @@ export class MemStorage implements IStorage {
 
     this.orders.set(id, order);
     return order;
+  }
+
+  // Calendar Events
+  async getAllCalendarEvents(): Promise<CalendarEvent[]> {
+    return Array.from(this.calendarEvents.values()).sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  }
+
+  async getCalendarEventsByDateRange(startDate: string, endDate: string): Promise<CalendarEvent[]> {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return Array.from(this.calendarEvents.values())
+      .filter((e) => {
+        const eventDate = new Date(e.date);
+        return eventDate >= start && eventDate <= end;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }
+
+  async getCalendarEventsByField(field: string, startDate: string, endDate: string): Promise<CalendarEvent[]> {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return Array.from(this.calendarEvents.values())
+      .filter((e) => {
+        const eventDate = new Date(e.date);
+        return e.field === field && eventDate >= start && eventDate <= end;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }
+
+  async getCalendarEvent(id: string): Promise<CalendarEvent | undefined> {
+    return this.calendarEvents.get(id);
+  }
+
+  async createCalendarEvent(insertEvent: InsertCalendarEvent): Promise<CalendarEvent> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const event: CalendarEvent = {
+      ...insertEvent,
+      id,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.calendarEvents.set(id, event);
+    return event;
+  }
+
+  async updateCalendarEvent(id: string, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined> {
+    const existing = this.calendarEvents.get(id);
+    if (!existing) return undefined;
+    const updated: CalendarEvent = {
+      ...existing,
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+    this.calendarEvents.set(id, updated);
+    return updated;
+  }
+
+  async deleteCalendarEvent(id: string): Promise<boolean> {
+    return this.calendarEvents.delete(id);
+  }
+
+  // Field Mappings
+  async getAllFieldMappings(): Promise<FieldMapping[]> {
+    return Array.from(this.fieldMappings.values());
+  }
+
+  async createFieldMapping(insertMapping: InsertFieldMapping): Promise<FieldMapping> {
+    const id = randomUUID();
+    const mapping: FieldMapping = { ...insertMapping, id };
+    this.fieldMappings.set(id, mapping);
+    return mapping;
+  }
+
+  async updateFieldMapping(id: string, data: Partial<InsertFieldMapping>): Promise<FieldMapping | undefined> {
+    const existing = this.fieldMappings.get(id);
+    if (!existing) return undefined;
+    const updated: FieldMapping = { ...existing, ...data };
+    this.fieldMappings.set(id, updated);
+    return updated;
+  }
+
+  async deleteFieldMapping(id: string): Promise<boolean> {
+    return this.fieldMappings.delete(id);
+  }
+
+  // BFV Import Config
+  async getAllBfvImportConfigs(): Promise<BfvImportConfig[]> {
+    return Array.from(this.bfvImportConfigs.values());
+  }
+
+  async getBfvImportConfig(id: string): Promise<BfvImportConfig | undefined> {
+    return this.bfvImportConfigs.get(id);
+  }
+
+  async createBfvImportConfig(insertConfig: InsertBfvImportConfig): Promise<BfvImportConfig> {
+    const id = randomUUID();
+    const config: BfvImportConfig = { ...insertConfig, id };
+    this.bfvImportConfigs.set(id, config);
+    return config;
+  }
+
+  async updateBfvImportConfig(id: string, data: Partial<InsertBfvImportConfig>): Promise<BfvImportConfig | undefined> {
+    const existing = this.bfvImportConfigs.get(id);
+    if (!existing) return undefined;
+    const updated: BfvImportConfig = { ...existing, ...data };
+    this.bfvImportConfigs.set(id, updated);
+    return updated;
+  }
+
+  async deleteBfvImportConfig(id: string): Promise<boolean> {
+    return this.bfvImportConfigs.delete(id);
   }
 }
 
