@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,7 @@ import {
   Download, 
   AlertTriangle,
   Trash2,
-  Edit
+  ArrowLeft
 } from "lucide-react";
 import type { 
   CalendarEvent, 
@@ -42,31 +42,27 @@ const MONTHS_DE = [
   "Juli", "August", "September", "Oktober", "November", "Dezember"
 ];
 
-const WEEKDAYS_DE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-
-function getMonthDays(year: number, month: number) {
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const daysInMonth = lastDay.getDate();
-  
-  let startDay = firstDay.getDay() - 1;
-  if (startDay < 0) startDay = 6;
-  
-  const days: (Date | null)[] = [];
-  
-  for (let i = 0; i < startDay; i++) {
-    days.push(null);
-  }
-  
-  for (let i = 1; i <= daysInMonth; i++) {
-    days.push(new Date(year, month, i));
-  }
-  
-  return days;
-}
+const WEEKDAY_LETTERS = ["M", "D", "M", "D", "F", "S", "S"];
 
 function formatDate(date: Date): string {
   return date.toISOString().split("T")[0];
+}
+
+function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+function getDaysInMonth(year: number, month: number): Date[] {
+  const days: Date[] = [];
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  for (let d = 1; d <= lastDay; d++) {
+    days.push(new Date(year, month, d));
+  }
+  return days;
 }
 
 interface EventFormData {
@@ -379,13 +375,16 @@ function EventDialog({
   );
 }
 
+type ViewMode = "year" | "month" | "day";
+
 export default function CalendarPage() {
   const { toast } = useToast();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("year");
+  const [selectedMonth, setSelectedMonth] = useState<number>(0);
+  const [selectedDate, setSelectedDate] = useState<string | undefined>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | undefined>();
-  const [selectedDate, setSelectedDate] = useState<string | undefined>();
   
   const [filterTeam, setFilterTeam] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
@@ -448,25 +447,330 @@ export default function CalendarPage() {
     }
   };
 
+  const handleDayClick = (dateStr: string, month: number) => {
+    if (viewMode === "year") {
+      setSelectedMonth(month);
+      setViewMode("month");
+    } else if (viewMode === "month") {
+      const dayEvents = eventsByDate.get(dateStr) || [];
+      if (dayEvents.length === 0) {
+        setSelectedDate(dateStr);
+        setEditingEvent(undefined);
+        setDialogOpen(true);
+      } else if (dayEvents.length === 1) {
+        setEditingEvent(dayEvents[0]);
+        setSelectedDate(undefined);
+        setDialogOpen(true);
+      } else {
+        setSelectedDate(dateStr);
+        setViewMode("day");
+      }
+    }
+  };
+
+  const handleEventClick = (event: CalendarEvent, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingEvent(event);
+    setSelectedDate(undefined);
+    setDialogOpen(true);
+  };
+
   const openCreateDialog = (date?: string) => {
     setEditingEvent(undefined);
     setSelectedDate(date);
     setDialogOpen(true);
   };
 
-  const openEditDialog = (event: CalendarEvent) => {
-    setEditingEvent(event);
-    setSelectedDate(undefined);
-    setDialogOpen(true);
+  const goBack = () => {
+    if (viewMode === "day") {
+      setViewMode("month");
+    } else if (viewMode === "month") {
+      setViewMode("year");
+    }
   };
 
   const today = formatDate(new Date());
+  const todayDate = new Date();
+
+  const getEventColorClass = (type: EventType): string => {
+    const colors: Record<EventType, string> = {
+      spiel: "bg-blue-500 text-white",
+      training: "bg-green-500 text-white",
+      turnier: "bg-purple-500 text-white",
+      vereinsevent: "bg-orange-500 text-white",
+      platzsperrung: "bg-red-500 text-white",
+      sonstiges: "bg-gray-500 text-white",
+    };
+    return colors[type];
+  };
+
+  const renderYearView = () => {
+    const monthsFirstHalf = [0, 1, 2, 3, 4, 5];
+    const monthsSecondHalf = [6, 7, 8, 9, 10, 11];
+
+    const renderMonthColumn = (month: number) => {
+      const days = getDaysInMonth(currentYear, month);
+      let lastWeek = -1;
+
+      return (
+        <div key={month} className="flex-1 min-w-0">
+          <div className="text-center font-semibold text-sm py-1 border-b bg-muted">
+            {MONTHS_DE[month]} {currentYear}
+          </div>
+          <div className="text-xs">
+            {days.map((date) => {
+              const dateStr = formatDate(date);
+              const dayOfWeek = date.getDay();
+              const weekdayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+              const weekNum = getWeekNumber(date);
+              const showWeekNum = weekNum !== lastWeek && (dayOfWeek === 0 || date.getDate() === 1);
+              lastWeek = weekNum;
+
+              const dayEvents = eventsByDate.get(dateStr) || [];
+              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+              const isToday = dateStr === today;
+              const hasConflict = conflicts.some(
+                (c) => c.event1.date === dateStr || c.event2.date === dateStr
+              );
+
+              const primaryEvent = dayEvents[0];
+
+              return (
+                <div
+                  key={dateStr}
+                  className={`
+                    flex items-center px-1 py-0.5 cursor-pointer border-b border-border/50
+                    ${isWeekend ? "bg-muted/50" : ""}
+                    ${isToday ? "bg-primary/20 font-bold" : ""}
+                    ${hasConflict ? "ring-1 ring-destructive ring-inset" : ""}
+                    hover:bg-accent/50 transition-colors
+                  `}
+                  onClick={() => handleDayClick(dateStr, month)}
+                  data-testid={`day-${dateStr}`}
+                >
+                  <span className="w-4 text-muted-foreground">{WEEKDAY_LETTERS[weekdayIndex]}</span>
+                  <span className={`w-5 text-right ${isToday ? "text-primary font-bold" : ""}`}>
+                    {date.getDate()}
+                  </span>
+                  <span className="flex-1 ml-1 truncate">
+                    {primaryEvent && (
+                      <span 
+                        className={`text-xs px-1 rounded ${getEventColorClass(primaryEvent.type)}`}
+                        onClick={(e) => handleEventClick(primaryEvent, e)}
+                      >
+                        {primaryEvent.title.length > 15 
+                          ? primaryEvent.title.substring(0, 15) + "..." 
+                          : primaryEvent.title}
+                      </span>
+                    )}
+                    {dayEvents.length > 1 && (
+                      <span className="text-muted-foreground ml-1">+{dayEvents.length - 1}</span>
+                    )}
+                  </span>
+                  {showWeekNum && (
+                    <span className="w-6 text-right text-muted-foreground font-medium">{weekNum}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex gap-1 overflow-x-auto">
+          {monthsFirstHalf.map(renderMonthColumn)}
+        </div>
+        <div className="flex gap-1 overflow-x-auto">
+          {monthsSecondHalf.map(renderMonthColumn)}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMonthView = () => {
+    const days = getDaysInMonth(currentYear, selectedMonth);
+    let lastWeek = -1;
+
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Zurück zur Jahresübersicht
+            </Button>
+            <CardTitle>{MONTHS_DE[selectedMonth]} {currentYear}</CardTitle>
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  if (selectedMonth === 0) {
+                    setCurrentYear(currentYear - 1);
+                    setSelectedMonth(11);
+                  } else {
+                    setSelectedMonth(selectedMonth - 1);
+                  }
+                }}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  if (selectedMonth === 11) {
+                    setCurrentYear(currentYear + 1);
+                    setSelectedMonth(0);
+                  } else {
+                    setSelectedMonth(selectedMonth + 1);
+                  }
+                }}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1">
+            {days.map((date) => {
+              const dateStr = formatDate(date);
+              const dayOfWeek = date.getDay();
+              const weekdayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+              const weekNum = getWeekNumber(date);
+              const showWeekNum = weekNum !== lastWeek;
+              lastWeek = weekNum;
+
+              const dayEvents = eventsByDate.get(dateStr) || [];
+              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+              const isToday = dateStr === today;
+              const hasConflict = conflicts.some(
+                (c) => c.event1.date === dateStr || c.event2.date === dateStr
+              );
+
+              return (
+                <div
+                  key={dateStr}
+                  className={`
+                    flex items-center p-2 rounded-md cursor-pointer
+                    ${isWeekend ? "bg-muted/50" : ""}
+                    ${isToday ? "bg-primary/20 ring-2 ring-primary" : ""}
+                    ${hasConflict ? "ring-2 ring-destructive" : ""}
+                    hover:bg-accent/50 transition-colors
+                  `}
+                  onClick={() => handleDayClick(dateStr, selectedMonth)}
+                  data-testid={`month-day-${dateStr}`}
+                >
+                  <span className="w-8 font-medium text-muted-foreground">
+                    {["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][dayOfWeek]}
+                  </span>
+                  <span className={`w-8 font-bold ${isToday ? "text-primary" : ""}`}>
+                    {date.getDate()}
+                  </span>
+                  <div className="flex-1 flex flex-wrap gap-1">
+                    {dayEvents.map((event) => (
+                      <Badge
+                        key={event.id}
+                        className={`${getEventColorClass(event.type)} cursor-pointer`}
+                        onClick={(e) => handleEventClick(event, e)}
+                        data-testid={`event-badge-${event.id}`}
+                      >
+                        {event.startTime} {event.title}
+                      </Badge>
+                    ))}
+                    {dayEvents.length === 0 && (
+                      <span className="text-muted-foreground text-sm">Klicken um Termin zu erstellen</span>
+                    )}
+                  </div>
+                  {showWeekNum && (
+                    <span className="w-12 text-right text-muted-foreground">KW {weekNum}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderDayView = () => {
+    if (!selectedDate) return null;
+    const dayEvents = eventsByDate.get(selectedDate) || [];
+    const date = new Date(selectedDate);
+
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back-day">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Zurück zum Monat
+            </Button>
+            <CardTitle>
+              {date.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </CardTitle>
+            <Button onClick={() => openCreateDialog(selectedDate)} data-testid="button-add-event-day">
+              <Plus className="h-4 w-4 mr-2" />
+              Neuer Termin
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {dayEvents.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>Keine Termine an diesem Tag</p>
+              <Button className="mt-4" onClick={() => openCreateDialog(selectedDate)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Termin erstellen
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {dayEvents.map((event) => (
+                <div
+                  key={event.id}
+                  className={`p-3 rounded-md cursor-pointer hover-elevate ${getEventColorClass(event.type)}`}
+                  onClick={() => {
+                    setEditingEvent(event);
+                    setDialogOpen(true);
+                  }}
+                  data-testid={`day-event-${event.id}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">{event.title}</span>
+                    <span>{event.startTime} - {event.endTime}</span>
+                  </div>
+                  {event.team && (
+                    <div className="text-sm opacity-90">{TEAM_LABELS[event.team]}</div>
+                  )}
+                  {event.opponent && (
+                    <div className="text-sm opacity-90">
+                      {event.isHomeGame ? "Heim" : "Auswärts"} vs {event.opponent}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Jahreskalender {currentYear}</h1>
+          <h1 className="text-2xl font-bold">
+            {viewMode === "year" ? `Jahreskalender ${currentYear}` : 
+             viewMode === "month" ? `${MONTHS_DE[selectedMonth]} ${currentYear}` :
+             "Tagesansicht"}
+          </h1>
           <p className="text-muted-foreground">
             {events.length} Termine | {conflicts.length} Konflikte
           </p>
@@ -517,6 +821,9 @@ export default function CalendarPage() {
                 <DialogTitle>
                   {editingEvent ? "Termin bearbeiten" : "Neuer Termin"}
                 </DialogTitle>
+                <DialogDescription>
+                  {editingEvent ? "Bearbeiten Sie die Termindetails" : "Erstellen Sie einen neuen Termin im Kalender"}
+                </DialogDescription>
               </DialogHeader>
               <EventDialog 
                 event={editingEvent} 
@@ -528,27 +835,29 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-4 mb-4">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setCurrentYear(currentYear - 1)}
-          data-testid="button-prev-year"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="text-xl font-semibold min-w-20 text-center">{currentYear}</span>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setCurrentYear(currentYear + 1)}
-          data-testid="button-next-year"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
+      {viewMode === "year" && (
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setCurrentYear(currentYear - 1)}
+            data-testid="button-prev-year"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-xl font-semibold min-w-20 text-center">{currentYear}</span>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setCurrentYear(currentYear + 1)}
+            data-testid="button-next-year"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
-      {conflicts.length > 0 && (
+      {conflicts.length > 0 && viewMode === "year" && (
         <Card className="border-destructive">
           <CardHeader className="pb-2">
             <CardTitle className="text-destructive flex items-center gap-2">
@@ -577,144 +886,9 @@ export default function CalendarPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {Array.from({ length: 12 }, (_, month) => {
-          const days = getMonthDays(currentYear, month);
-          const monthEvents = filteredEvents.filter((e) => {
-            const eventDate = new Date(e.date);
-            return eventDate.getMonth() === month && eventDate.getFullYear() === currentYear;
-          });
-
-          return (
-            <Card 
-              key={month} 
-              className={`cursor-pointer transition-shadow hover-elevate ${selectedMonth === month ? "ring-2 ring-primary" : ""}`}
-              onClick={() => setSelectedMonth(selectedMonth === month ? null : month)}
-              data-testid={`month-${month}`}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center justify-between">
-                  {MONTHS_DE[month]}
-                  {monthEvents.length > 0 && (
-                    <Badge variant="secondary">{monthEvents.length}</Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pb-3">
-                <div className="grid grid-cols-7 gap-0.5 text-xs">
-                  {WEEKDAYS_DE.map((day) => (
-                    <div key={day} className="text-center text-muted-foreground font-medium p-1">
-                      {day}
-                    </div>
-                  ))}
-                  {days.map((date, i) => {
-                    if (!date) {
-                      return <div key={`empty-${i}`} className="p-1" />;
-                    }
-                    
-                    const dateStr = formatDate(date);
-                    const dayEvents = eventsByDate.get(dateStr) || [];
-                    const hasConflict = conflicts.some(
-                      (c) => c.event1.date === dateStr || c.event2.date === dateStr
-                    );
-                    const isToday = dateStr === today;
-                    
-                    return (
-                      <div
-                        key={dateStr}
-                        className={`
-                          relative p-1 text-center rounded-sm cursor-pointer
-                          ${isToday ? "bg-primary text-primary-foreground font-bold" : ""}
-                          ${dayEvents.length > 0 && !isToday ? "bg-muted" : ""}
-                          ${hasConflict ? "ring-1 ring-destructive" : ""}
-                        `}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (dayEvents.length === 1) {
-                            openEditDialog(dayEvents[0]);
-                          } else if (dayEvents.length > 1) {
-                            setSelectedMonth(month);
-                          } else {
-                            openCreateDialog(dateStr);
-                          }
-                        }}
-                        data-testid={`day-${dateStr}`}
-                      >
-                        {date.getDate()}
-                        {dayEvents.length > 0 && (
-                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 flex gap-0.5">
-                            {dayEvents.slice(0, 3).map((ev, j) => (
-                              <div
-                                key={j}
-                                className={`w-1 h-1 rounded-full ${EVENT_TYPE_COLORS[ev.type]}`}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {selectedMonth !== null && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Termine im {MONTHS_DE[selectedMonth]}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {filteredEvents
-              .filter((e) => {
-                const eventDate = new Date(e.date);
-                return eventDate.getMonth() === selectedMonth && eventDate.getFullYear() === currentYear;
-              })
-              .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime))
-              .map((event) => (
-                <div
-                  key={event.id}
-                  className="flex items-center gap-3 p-3 rounded-md hover-elevate cursor-pointer border-b last:border-0"
-                  onClick={() => openEditDialog(event)}
-                  data-testid={`event-${event.id}`}
-                >
-                  <div className={`w-3 h-3 rounded-full ${EVENT_TYPE_COLORS[event.type]}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{event.title}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {new Date(event.date).toLocaleDateString("de-DE")} | {event.startTime} - {event.endTime}
-                      {event.team && ` | ${TEAM_LABELS[event.team]}`}
-                      {event.field && ` | ${FIELD_LABELS[event.field]}`}
-                    </div>
-                  </div>
-                  <Badge variant="outline">{EVENT_TYPE_LABELS[event.type]}</Badge>
-                  <Button variant="ghost" size="icon" data-testid={`edit-event-${event.id}`}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            {filteredEvents.filter((e) => {
-              const eventDate = new Date(e.date);
-              return eventDate.getMonth() === selectedMonth && eventDate.getFullYear() === currentYear;
-            }).length === 0 && (
-              <p className="text-muted-foreground text-center py-8">
-                Keine Termine in diesem Monat
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="flex flex-wrap gap-3">
-        {EVENT_TYPES.map((type) => (
-          <div key={type} className="flex items-center gap-2 text-sm">
-            <div className={`w-3 h-3 rounded-full ${EVENT_TYPE_COLORS[type]}`} />
-            <span>{EVENT_TYPE_LABELS[type]}</span>
-          </div>
-        ))}
-      </div>
+      {viewMode === "year" && renderYearView()}
+      {viewMode === "month" && renderMonthView()}
+      {viewMode === "day" && renderDayView()}
     </div>
   );
 }
