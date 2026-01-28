@@ -947,9 +947,9 @@ export async function registerRoutes(
 
       // Dynamic import for pdf-parse
       const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse(req.file.buffer);
-      const pdfData = await parser.parse();
-      const text = pdfData.text;
+      const parser = new PDFParse({ verbosity: 0 });
+      await parser.load(req.file.buffer);
+      const text = await parser.getText();
       
       const parsedMatches = parseBfvPdf(text);
       
