@@ -945,11 +945,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Keine PDF-Datei hochgeladen" });
       }
 
-      // Dynamic import for pdf-parse
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse({ verbosity: 0 });
-      await parser.load(req.file.buffer);
-      const text = await parser.getText();
+      // Use pdfjs-dist directly for PDF parsing
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(req.file.buffer) }).promise;
+      let text = "";
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        text += (content.items as any[]).map((item: any) => item.str).join(" ") + "\n";
+      }
       
       const parsedMatches = parseBfvPdf(text);
       
