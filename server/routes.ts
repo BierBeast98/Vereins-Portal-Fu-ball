@@ -1,7 +1,14 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProductSchema, insertCampaignSchema, insertOrderSchema } from "@shared/schema";
+import { 
+  insertProductSchema, 
+  insertCampaignSchema, 
+  insertOrderSchema,
+  insertCalendarEventSchema,
+  insertFieldMappingSchema,
+  insertBfvImportConfigSchema,
+} from "@shared/schema";
 import { z } from "zod";
 import { sendOrderConfirmation } from "./email";
 
@@ -304,6 +311,282 @@ export async function registerRoutes(
       res.send(csvContent);
     } catch (error) {
       res.status(500).json({ error: "Failed to export orders" });
+    }
+  });
+
+  // ============================================
+  // PLANNING MODULE - Calendar Events (Admin only)
+  // ============================================
+
+  // Get all calendar events
+  app.get("/api/calendar/events", requireAdmin, async (req, res) => {
+    try {
+      const { startDate, endDate, field, team, type } = req.query;
+      let events;
+
+      if (startDate && endDate) {
+        if (field) {
+          events = await storage.getCalendarEventsByField(
+            field as string,
+            startDate as string,
+            endDate as string
+          );
+        } else {
+          events = await storage.getCalendarEventsByDateRange(
+            startDate as string,
+            endDate as string
+          );
+        }
+      } else {
+        events = await storage.getAllCalendarEvents();
+      }
+
+      // Additional filtering
+      if (team) {
+        events = events.filter((e) => e.team === team);
+      }
+      if (type) {
+        events = events.filter((e) => e.type === type);
+      }
+
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ error: "Termine konnten nicht geladen werden" });
+    }
+  });
+
+  // Get single calendar event
+  app.get("/api/calendar/events/:id", requireAdmin, async (req, res) => {
+    try {
+      const event = await storage.getCalendarEvent(req.params.id);
+      if (!event) {
+        return res.status(404).json({ error: "Termin nicht gefunden" });
+      }
+      res.json(event);
+    } catch (error) {
+      res.status(500).json({ error: "Termin konnte nicht geladen werden" });
+    }
+  });
+
+  // Create calendar event
+  app.post("/api/calendar/events", requireAdmin, async (req, res) => {
+    try {
+      const data = insertCalendarEventSchema.parse(req.body);
+      const event = await storage.createCalendarEvent(data);
+      res.status(201).json(event);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Termin konnte nicht erstellt werden" });
+    }
+  });
+
+  // Update calendar event
+  app.patch("/api/calendar/events/:id", requireAdmin, async (req, res) => {
+    try {
+      const data = insertCalendarEventSchema.partial().parse(req.body);
+      const event = await storage.updateCalendarEvent(req.params.id, data);
+      if (!event) {
+        return res.status(404).json({ error: "Termin nicht gefunden" });
+      }
+      res.json(event);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Termin konnte nicht aktualisiert werden" });
+    }
+  });
+
+  // Delete calendar event
+  app.delete("/api/calendar/events/:id", requireAdmin, async (req, res) => {
+    try {
+      const deleted = await storage.deleteCalendarEvent(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Termin nicht gefunden" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Termin konnte nicht gelöscht werden" });
+    }
+  });
+
+  // Check for conflicts
+  app.get("/api/calendar/conflicts", requireAdmin, async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: "Start- und Enddatum erforderlich" });
+      }
+
+      const events = await storage.getCalendarEventsByDateRange(
+        startDate as string,
+        endDate as string
+      );
+
+      // Find overlapping events on the same field
+      const conflicts: Array<{ event1: any; event2: any; reason: string }> = [];
+
+      for (let i = 0; i < events.length; i++) {
+        for (let j = i + 1; j < events.length; j++) {
+          const e1 = events[i];
+          const e2 = events[j];
+
+          // Same date and same field?
+          if (e1.date === e2.date && e1.field && e2.field && e1.field === e2.field) {
+            // Check time overlap
+            const start1 = parseInt(e1.startTime.replace(":", ""));
+            const end1 = parseInt(e1.endTime.replace(":", ""));
+            const start2 = parseInt(e2.startTime.replace(":", ""));
+            const end2 = parseInt(e2.endTime.replace(":", ""));
+
+            if (start1 < end2 && start2 < end1) {
+              conflicts.push({
+                event1: e1,
+                event2: e2,
+                reason: `Zeitüberschneidung auf ${e1.field}`,
+              });
+            }
+          }
+        }
+      }
+
+      res.json(conflicts);
+    } catch (error) {
+      res.status(500).json({ error: "Konflikte konnten nicht ermittelt werden" });
+    }
+  });
+
+  // Field Mappings
+  app.get("/api/calendar/field-mappings", requireAdmin, async (req, res) => {
+    try {
+      const mappings = await storage.getAllFieldMappings();
+      res.json(mappings);
+    } catch (error) {
+      res.status(500).json({ error: "Platzzuordnungen konnten nicht geladen werden" });
+    }
+  });
+
+  app.post("/api/calendar/field-mappings", requireAdmin, async (req, res) => {
+    try {
+      const data = insertFieldMappingSchema.parse(req.body);
+      const mapping = await storage.createFieldMapping(data);
+      res.status(201).json(mapping);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Platzzuordnung konnte nicht erstellt werden" });
+    }
+  });
+
+  app.delete("/api/calendar/field-mappings/:id", requireAdmin, async (req, res) => {
+    try {
+      const deleted = await storage.deleteFieldMapping(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Platzzuordnung nicht gefunden" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Platzzuordnung konnte nicht gelöscht werden" });
+    }
+  });
+
+  // BFV Import Config
+  app.get("/api/calendar/bfv-configs", requireAdmin, async (req, res) => {
+    try {
+      const configs = await storage.getAllBfvImportConfigs();
+      res.json(configs);
+    } catch (error) {
+      res.status(500).json({ error: "BFV-Konfigurationen konnten nicht geladen werden" });
+    }
+  });
+
+  app.post("/api/calendar/bfv-configs", requireAdmin, async (req, res) => {
+    try {
+      const data = insertBfvImportConfigSchema.parse(req.body);
+      const config = await storage.createBfvImportConfig(data);
+      res.status(201).json(config);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "BFV-Konfiguration konnte nicht erstellt werden" });
+    }
+  });
+
+  app.delete("/api/calendar/bfv-configs/:id", requireAdmin, async (req, res) => {
+    try {
+      const deleted = await storage.deleteBfvImportConfig(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "BFV-Konfiguration nicht gefunden" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "BFV-Konfiguration konnte nicht gelöscht werden" });
+    }
+  });
+
+  // Calendar Export (PDF placeholder - would need a PDF library for full implementation)
+  app.get("/api/calendar/export", requireAdmin, async (req, res) => {
+    try {
+      const { startDate, endDate, format } = req.query;
+      
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: "Start- und Enddatum erforderlich" });
+      }
+
+      const events = await storage.getCalendarEventsByDateRange(
+        startDate as string,
+        endDate as string
+      );
+
+      if (format === "csv") {
+        const headers = [
+          "Datum",
+          "Start",
+          "Ende",
+          "Titel",
+          "Typ",
+          "Mannschaft",
+          "Platz",
+          "Heim/Auswärts",
+          "Gegner",
+          "Wettbewerb",
+        ];
+
+        const rows = events.map((event) => [
+          event.date,
+          event.startTime,
+          event.endTime,
+          event.title,
+          event.type,
+          event.team || "",
+          event.field || "",
+          event.isHomeGame ? "Heim" : event.isHomeGame === false ? "Auswärts" : "",
+          event.opponent || "",
+          event.competition || "",
+        ]);
+
+        const BOM = "\uFEFF";
+        const csvContent =
+          BOM +
+          headers.join(";") +
+          "\n" +
+          rows.map((row) => row.map((cell) => `"${cell}"`).join(";")).join("\n");
+
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="kalender-${startDate}-${endDate}.csv"`
+        );
+        res.send(csvContent);
+      } else {
+        res.json(events);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Export fehlgeschlagen" });
     }
   });
 
