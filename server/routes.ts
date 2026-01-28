@@ -358,7 +358,7 @@ export async function registerRoutes(
   // Get single calendar event
   app.get("/api/calendar/events/:id", requireAdmin, async (req, res) => {
     try {
-      const event = await storage.getCalendarEvent(req.params.id);
+      const event = await storage.getCalendarEvent(req.params.id as string);
       if (!event) {
         return res.status(404).json({ error: "Termin nicht gefunden" });
       }
@@ -386,7 +386,7 @@ export async function registerRoutes(
   app.patch("/api/calendar/events/:id", requireAdmin, async (req, res) => {
     try {
       const data = insertCalendarEventSchema.partial().parse(req.body);
-      const event = await storage.updateCalendarEvent(req.params.id, data);
+      const event = await storage.updateCalendarEvent(req.params.id as string, data);
       if (!event) {
         return res.status(404).json({ error: "Termin nicht gefunden" });
       }
@@ -402,7 +402,7 @@ export async function registerRoutes(
   // Delete calendar event
   app.delete("/api/calendar/events/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteCalendarEvent(req.params.id);
+      const deleted = await storage.deleteCalendarEvent(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Termin nicht gefunden" });
       }
@@ -483,7 +483,7 @@ export async function registerRoutes(
 
   app.delete("/api/calendar/field-mappings/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteFieldMapping(req.params.id);
+      const deleted = await storage.deleteFieldMapping(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Platzzuordnung nicht gefunden" });
       }
@@ -518,7 +518,7 @@ export async function registerRoutes(
 
   app.delete("/api/calendar/bfv-configs/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteBfvImportConfig(req.params.id);
+      const deleted = await storage.deleteBfvImportConfig(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "BFV-Konfiguration nicht gefunden" });
       }

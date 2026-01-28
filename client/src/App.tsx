@@ -14,6 +14,8 @@ import ProductsPage from "@/pages/admin/products";
 import CampaignsPage from "@/pages/admin/campaigns";
 import OrdersPage from "@/pages/admin/orders";
 import SettingsPage from "@/pages/admin/settings";
+import CalendarPage from "@/pages/admin/calendar";
+import FieldsPage from "@/pages/admin/fields";
 import { Loader2 } from "lucide-react";
 
 function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -76,6 +78,8 @@ function Router() {
           <Route path="/admin/products" component={ProductsPage} />
           <Route path="/admin/campaigns" component={CampaignsPage} />
           <Route path="/admin/orders" component={OrdersPage} />
+          <Route path="/admin/calendar" component={CalendarPage} />
+          <Route path="/admin/fields" component={FieldsPage} />
           <Route path="/admin/settings" component={SettingsPage} />
           <Route component={NotFound} />
         </Switch>

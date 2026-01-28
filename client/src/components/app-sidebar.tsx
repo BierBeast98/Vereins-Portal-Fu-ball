@@ -13,10 +13,10 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut } from "lucide-react";
+import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
-const adminItems = [
+const shopItems = [
   {
     title: "Produkte",
     url: "/admin/products",
@@ -32,6 +32,22 @@ const adminItems = [
     url: "/admin/orders",
     icon: ClipboardList,
   },
+];
+
+const planningItems = [
+  {
+    title: "Jahreskalender",
+    url: "/admin/calendar",
+    icon: CalendarDays,
+  },
+  {
+    title: "Platzbelegung",
+    url: "/admin/fields",
+    icon: LayoutGrid,
+  },
+];
+
+const settingsItems = [
   {
     title: "Einstellungen",
     url: "/admin/settings",
@@ -68,10 +84,50 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Verwaltung</SidebarGroupLabel>
+          <SidebarGroupLabel>Bestellportal</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {adminItems.map((item) => (
+              {shopItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.url}
+                  >
+                    <Link href={item.url} data-testid={`link-${item.url.split('/').pop()}`}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Fußball-Planung</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {planningItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.url}
+                  >
+                    <Link href={item.url} data-testid={`link-${item.url.split('/').pop()}`}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>System</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {settingsItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
