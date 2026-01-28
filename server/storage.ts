@@ -53,6 +53,7 @@ export interface IStorage {
   getCalendarEventsByDateRange(startDate: string, endDate: string): Promise<CalendarEvent[]>;
   getCalendarEventsByField(field: string, startDate: string, endDate: string): Promise<CalendarEvent[]>;
   getCalendarEvent(id: string): Promise<CalendarEvent | undefined>;
+  getCalendarEventByBfvId(bfvMatchId: string): Promise<CalendarEvent | undefined>;
   createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
   updateCalendarEvent(id: string, event: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
   deleteCalendarEvent(id: string): Promise<boolean>;
@@ -67,7 +68,7 @@ export interface IStorage {
   getAllBfvImportConfigs(): Promise<BfvImportConfig[]>;
   getBfvImportConfig(id: string): Promise<BfvImportConfig | undefined>;
   createBfvImportConfig(config: InsertBfvImportConfig): Promise<BfvImportConfig>;
-  updateBfvImportConfig(id: string, config: Partial<InsertBfvImportConfig>): Promise<BfvImportConfig | undefined>;
+  updateBfvImportConfig(id: string, config: Partial<InsertBfvImportConfig & { lastImport?: string }>): Promise<BfvImportConfig | undefined>;
   deleteBfvImportConfig(id: string): Promise<boolean>;
 }
 
@@ -404,6 +405,15 @@ export class MemStorage implements IStorage {
     return this.calendarEvents.get(id);
   }
 
+  async getCalendarEventByBfvId(bfvMatchId: string): Promise<CalendarEvent | undefined> {
+    for (const event of this.calendarEvents.values()) {
+      if (event.bfvMatchId === bfvMatchId) {
+        return event;
+      }
+    }
+    return undefined;
+  }
+
   async createCalendarEvent(insertEvent: InsertCalendarEvent): Promise<CalendarEvent> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -473,7 +483,7 @@ export class MemStorage implements IStorage {
     return config;
   }
 
-  async updateBfvImportConfig(id: string, data: Partial<InsertBfvImportConfig>): Promise<BfvImportConfig | undefined> {
+  async updateBfvImportConfig(id: string, data: Partial<InsertBfvImportConfig & { lastImport?: string }>): Promise<BfvImportConfig | undefined> {
     const existing = this.bfvImportConfigs.get(id);
     if (!existing) return undefined;
     const updated: BfvImportConfig = { ...existing, ...data };
