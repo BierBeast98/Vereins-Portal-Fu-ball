@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertProductSchema, insertCampaignSchema, insertOrderSchema } from "@shared/schema";
 import { z } from "zod";
+import { sendOrderConfirmation } from "./email";
 
 // Middleware to protect admin routes
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
@@ -224,6 +225,12 @@ export async function registerRoutes(
     try {
       const data = insertOrderSchema.parse(req.body);
       const order = await storage.createOrder(data);
+      
+      // Send confirmation email (don't wait for it, don't fail if it fails)
+      sendOrderConfirmation(order).catch((err) => {
+        console.error("E-Mail-Versand fehlgeschlagen:", err);
+      });
+      
       res.status(201).json(order);
     } catch (error) {
       if (error instanceof z.ZodError) {
