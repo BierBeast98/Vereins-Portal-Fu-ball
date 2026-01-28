@@ -12,6 +12,9 @@ import {
 import { z } from "zod";
 import { sendOrderConfirmation } from "./email";
 import type { Team, InsertCalendarEvent } from "@shared/schema";
+import multer from "multer";
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Helper to add hours to a time string
 function addHours(time: string, hours: number): string {
@@ -34,7 +37,7 @@ function parseBfvMatches(html: string, team: Team): Array<{
   
   // BFV uses structured data in their pages
   // Look for match entries in the HTML
-  const matchPattern = /data-match-id="([^"]+)".*?data-date="([^"]+)".*?data-time="([^"]+)".*?<span[^>]*class="[^"]*home-team[^"]*"[^>]*>([^<]+)<.*?<span[^>]*class="[^"]*away-team[^"]*"[^>]*>([^<]+)</gs;
+  const matchPattern = /data-match-id="([^"]+)"[\s\S]*?data-date="([^"]+)"[\s\S]*?data-time="([^"]+)"[\s\S]*?<span[^>]*class="[^"]*home-team[^"]*"[^>]*>([^<]+)<[\s\S]*?<span[^>]*class="[^"]*away-team[^"]*"[^>]*>([^<]+)</g;
   
   let match;
   while ((match = matchPattern.exec(html)) !== null) {
@@ -49,6 +52,147 @@ function parseBfvMatches(html: string, team: Team): Array<{
       isHome,
       competition: "Liga",
     });
+  }
+  
+  return matches;
+}
+
+// Determine team from match text
+function determineTeamFromMatch(homeTeam: string, awayTeam: string): Team | undefined {
+  const gredingTeam = homeTeam.includes("TSV Greding") ? homeTeam : awayTeam;
+  
+  // Check for specific team identifiers
+  if (gredingTeam.includes("TSV Greding II") || gredingTeam.includes("TSV Greding 2")) {
+    return "herren2";
+  }
+  if (gredingTeam === "TSV Greding" || gredingTeam.trim() === "TSV Greding") {
+    return "herren";
+  }
+  
+  // Check age group sections from PDF context
+  return undefined;
+}
+
+// Parse BFV PDF Vereinsspielplan
+interface ParsedPdfMatch {
+  type: string;
+  league: string;
+  date: string;
+  time: string;
+  homeTeam: string;
+  awayTeam: string;
+  location?: string;
+  team: Team;
+  isHome: boolean;
+}
+
+function parseBfvPdf(text: string): ParsedPdfMatch[] {
+  const matches: ParsedPdfMatch[] = [];
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  
+  let currentSection: string | undefined;
+  let i = 0;
+  
+  while (i < lines.length) {
+    const line = lines[i];
+    
+    // Detect section headers like "Herren", "E-Junioren", etc.
+    if (/^(Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|E-Junioren|F-Junioren|Alte Herren)$/i.test(line)) {
+      currentSection = line;
+      i++;
+      continue;
+    }
+    
+    // Look for date pattern DD.MM.YYYY
+    const dateMatch = line.match(/(\d{2}\.\d{2}\.\d{4})/);
+    if (dateMatch) {
+      // Try to parse a match line
+      // Format: TYP KLASSE DATUM UHRZEIT PARTIE
+      // Example: ME Bezirksliga 08.03.2026 14:00 TSV Greding - TSV Heideck
+      
+      const fullLine = line;
+      const timeMatch = fullLine.match(/(\d{2}:\d{2})/);
+      
+      if (timeMatch) {
+        const dateStr = dateMatch[1];
+        const timeStr = timeMatch[1];
+        
+        // Extract type and league from the beginning
+        let type = "";
+        let league = "";
+        const typeMatch = fullLine.match(/^(FS|ME|HM|PO)\s+/);
+        if (typeMatch) {
+          type = typeMatch[1];
+        }
+        
+        // Extract league (between type and date)
+        const leagueMatch = fullLine.match(/(?:FS|ME|HM|PO)?\s*((?:Freundschaftsspiele|Bezirksliga|A Klasse|Kreisliga|Kreispokal|Hallen-Kreisturnier)[^\d]*)/i);
+        if (leagueMatch) {
+          league = leagueMatch[1].trim();
+        }
+        
+        // Extract teams from the partie section (after time)
+        const afterTime = fullLine.substring(fullLine.indexOf(timeStr) + 5).trim();
+        const teamMatch = afterTime.match(/(.+?)\s+-\s+(.+)/);
+        
+        if (teamMatch) {
+          let homeTeam = teamMatch[1].trim();
+          let awayTeam = teamMatch[2].trim();
+          
+          // Check if it's a TSV Greding match
+          const isGredingMatch = homeTeam.includes("TSV Greding") || awayTeam.includes("TSV Greding");
+          
+          if (isGredingMatch && awayTeam !== "SPIELFREI") {
+            const isHome = homeTeam.includes("TSV Greding");
+            
+            // Determine which Greding team
+            let team: Team = "herren";
+            const gredingTeamStr = isHome ? homeTeam : awayTeam;
+            
+            if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
+              team = "herren2";
+            } else if (currentSection) {
+              // Use section context for youth teams
+              const sectionLower = currentSection.toLowerCase();
+              if (sectionLower.includes("e-juni") || sectionLower.includes("e-jugend")) team = "e-jugend";
+              else if (sectionLower.includes("f-juni") || sectionLower.includes("f-jugend")) team = "f-jugend";
+              else if (sectionLower.includes("d-juni") || sectionLower.includes("d-jugend")) team = "d-jugend";
+              else if (sectionLower.includes("c-juni") || sectionLower.includes("c-jugend")) team = "c-jugend";
+              else if (sectionLower.includes("b-juni") || sectionLower.includes("b-jugend")) team = "b-jugend";
+              else if (sectionLower.includes("a-juni") || sectionLower.includes("a-jugend")) team = "a-jugend";
+              else if (sectionLower.includes("g-juni") || sectionLower.includes("g-jugend")) team = "g-jugend";
+              else if (sectionLower.includes("damen")) team = "damen";
+              else if (sectionLower.includes("alte")) team = "alte-herren";
+            }
+            
+            // Convert date from DD.MM.YYYY to YYYY-MM-DD
+            const [day, month, year] = dateStr.split('.');
+            const isoDate = `${year}-${month}-${day}`;
+            
+            // Check for location in next line
+            let location: string | undefined;
+            if (i + 1 < lines.length && lines[i + 1].includes("Sportanlage") || lines[i + 1].includes("Sportplatz")) {
+              location = lines[i + 1];
+              i++;
+            }
+            
+            matches.push({
+              type,
+              league,
+              date: isoDate,
+              time: timeStr,
+              homeTeam,
+              awayTeam,
+              location,
+              team,
+              isHome,
+            });
+          }
+        }
+      }
+    }
+    
+    i++;
   }
   
   return matches;
@@ -791,6 +935,75 @@ export async function registerRoutes(
       }
     } catch (error) {
       res.status(500).json({ error: "Export fehlgeschlagen" });
+    }
+  });
+
+  // BFV PDF Import - Upload and parse PDF Vereinsspielplan
+  app.post("/api/calendar/bfv-import-pdf", requireAdmin, upload.single("pdf"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Keine PDF-Datei hochgeladen" });
+      }
+
+      // Dynamic import for pdf-parse
+      const pdfParseModule = await import("pdf-parse");
+      const pdfParse = (pdfParseModule as any).default || pdfParseModule;
+      
+      const pdfData = await pdfParse(req.file.buffer);
+      const text = pdfData.text;
+      
+      const parsedMatches = parseBfvPdf(text);
+      
+      const importedMatches: any[] = [];
+      const updatedMatches: any[] = [];
+      const skippedMatches: any[] = [];
+      
+      for (const match of parsedMatches) {
+        // Create a unique match ID based on date, time, and teams
+        const bfvMatchId = `pdf-${match.date}-${match.time}-${match.homeTeam.substring(0, 10)}-${match.awayTeam.substring(0, 10)}`.replace(/\s/g, "");
+        
+        const existing = await storage.getCalendarEventByBfvId(bfvMatchId);
+        
+        const opponent = match.isHome ? match.awayTeam : match.homeTeam;
+        
+        const eventData: InsertCalendarEvent = {
+          title: match.isHome 
+            ? `TSV Greding vs ${opponent}`
+            : `${opponent} vs TSV Greding`,
+          type: "spiel",
+          team: match.team,
+          field: match.isHome ? "a-platz" : undefined,
+          date: match.date,
+          startTime: match.time,
+          endTime: addHours(match.time, 2),
+          isHomeGame: match.isHome,
+          opponent: opponent,
+          location: match.isHome ? undefined : match.location,
+          competition: match.league || undefined,
+          bfvImported: true,
+          bfvMatchId: bfvMatchId,
+        };
+        
+        if (existing) {
+          await storage.updateCalendarEvent(existing.id, eventData);
+          updatedMatches.push({ ...eventData, id: existing.id });
+        } else {
+          const created = await storage.createCalendarEvent(eventData);
+          importedMatches.push(created);
+        }
+      }
+      
+      res.json({ 
+        success: true, 
+        imported: importedMatches.length,
+        updated: updatedMatches.length,
+        skipped: skippedMatches.length,
+        total: parsedMatches.length,
+        matches: [...importedMatches, ...updatedMatches],
+      });
+    } catch (error) {
+      console.error("PDF import error:", error);
+      res.status(500).json({ error: "PDF-Import fehlgeschlagen: " + (error as Error).message });
     }
   });
 
