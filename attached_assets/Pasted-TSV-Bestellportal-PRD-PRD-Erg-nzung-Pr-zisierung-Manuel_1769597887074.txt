@@ -1,0 +1,179 @@
+TSV Bestellportal PRD
+
+📄 PRD – Ergänzung & Präzisierung
+
+Manuelle & flexible Produktpflege (Admin-gesteuert)
+
+⸻
+
+1. Grundsatz
+
+Alle Produktinformationen werden ausschließlich manuell durch den Admin gepflegt
+→ kein automatischer Import, keine festen Strukturen wie bei Google Forms.
+
+Der Admin (du) soll:
+	•	Preise jederzeit ändern können
+	•	Texte & Beschreibungen anpassen können
+	•	Bilder austauschen oder ergänzen können
+	•	Produkte aktivieren/deaktivieren
+	•	Sammelbestellungen saisonal neu aufsetzen (Sommer / Winter)
+
+Ohne Code, ohne Entwickler.
+
+⸻
+
+2. Produktverwaltung – Detailanforderungen (Admin)
+
+2.1 Produkt-Stammdaten (manuell editierbar)
+
+Jedes Produkt besitzt folgende frei bearbeitbare Felder:
+
+Pflichtfelder
+	•	Produktname (z. B. „T-Shirt schwarz“)
+	•	Kategorie (z. B. T-Shirt, Pullover, Hose)
+	•	Basispreis (€)
+	•	Bild (Upload)
+	•	Aktiv / Inaktiv
+
+Optionale Felder
+	•	Kurzbeschreibung (z. B. „Trainingsshirt JAKO, atmungsaktiv“)
+	•	Längere Beschreibung (frei formatiert)
+	•	Marke (z. B. JAKO)
+	•	Saison-Zuordnung (Sommer 2025, Winter 25/26)
+
+⸻
+
+2.2 Bilderverwaltung
+	•	Upload von mindestens 1 Bild pro Produkt
+	•	Optional: mehrere Bilder
+	•	Drag & Drop
+	•	Bild kann jederzeit:
+	•	ersetzt
+	•	gelöscht
+	•	ergänzt werden
+	•	Änderungen wirken sofort im Frontend
+
+⸻
+
+2.3 Größen-Logik (flexibel)
+
+Pro Produkt:
+	•	frei wählbare Größen (Checkboxen)
+	•	z. B. S, M, L, XL, XXL
+	•	Größen können:
+	•	hinzugefügt
+	•	entfernt
+	•	temporär deaktiviert werden
+
+Frontend zeigt nur aktivierte Größen.
+
+⸻
+
+2.4 Initialien / Beflockung (konfigurierbar)
+
+Pro Produkt einstellbar:
+	•	Initialien möglich: Ja / Nein
+	•	Aufpreis Initialien: frei editierbar (€)
+	•	Bezeichnung frei editierbar:
+	•	z. B. „Initialienaufdruck“
+	•	oder „Name + Nummer“
+
+Frontend:
+	•	Option erscheint nur wenn aktiviert
+	•	Pflichtfeld für Text, wenn ausgewählt
+
+⸻
+
+3. Preislogik (Admin-gesteuert)
+
+3.1 Preisbestandteile
+	•	Basispreis (manuell)
+	•	Zusatzpreis Initialien (manuell)
+
+➡️ Gesamtpreis = automatisch berechnet, aber nicht fest verdrahtet
+
+3.2 Preisänderungen
+	•	Preisänderungen gelten:
+	•	für neue Bestellungen
+	•	optional: auch rückwirkend sichtbar (Admin-Ansicht)
+
+Frontend zeigt:
+	•	klar: „Preis: 24 € (+7 € für Initialien, falls gewünscht)“
+
+⸻
+
+4. Sammelbestellungen / Kampagnen
+
+4.1 Bestell-Kampagne
+
+Der Admin kann neue Kampagnen anlegen:
+	•	Name (z. B. „Sammelbestellung Sommer 2025“)
+	•	Beschreibungstext
+	•	Startdatum
+	•	Enddatum
+	•	aktive Produkte auswählen
+
+➡️ Produkte können kampagnenübergreifend wiederverwendet werden.
+
+⸻
+
+4.2 Sichtbarkeit im Frontend
+	•	Besteller sehen nur Produkte der aktiven Kampagne
+	•	Keine alten / inaktiven Artikel sichtbar
+
+⸻
+
+5. Änderbarkeit & Wartung (zentrales Ziel)
+
+Muss-Kriterien:
+
+✅ Preise ohne Entwickler änderbar
+✅ Bilder jederzeit tauschbar
+✅ Texte frei formulierbar
+✅ Produkte an/abschaltbar
+✅ Neue Produkte selbst anlegbar
+✅ Alte Produkte archivieren statt löschen
+
+⸻
+
+6. Admin-UX-Anforderung (wichtig)
+
+Die Admin-Oberfläche muss:
+	•	formbasiert sein (ähnlich CMS)
+	•	keine technischen Begriffe enthalten
+	•	mobil & Desktop nutzbar sein
+	•	sofort zeigen, wie es im Frontend aussieht (Preview optional)
+
+⸻
+
+7. Auswirkungen auf Excel-Export
+
+Auch bei frei gepflegten Produkten muss der Export:
+	•	immer stabil strukturiert sein
+	•	unabhängig von Beschreibungstexten funktionieren
+
+Excel enthält nur relevante Felder:
+	•	Produktname
+	•	Kategorie
+	•	Farbe (falls Feld vorhanden)
+	•	Größe
+	•	Initialien (Text)
+	•	Anzahl
+	•	Preis (optional)
+
+⸻
+
+8. Zusammenfassung für Entwickler (Kurzfassung)
+
+Die Plattform ist kein Shop, sondern ein Admin-gesteuertes Bestellsystem.
+Alle Inhalte (Preise, Bilder, Texte, Optionen) werden manuell im Backend gepflegt und müssen ohne Codeänderung jederzeit anpassbar sein.
+
+⸻
+
+Wenn du willst, mache ich dir als Nächstes:
+	•	🧱 konkretes Datenmodell (Tabellen & Felder)
+	•	🖥️ Admin-Mockup (welche Maske, welche Felder)
+	•	📊 exaktes Excel-Layout für den Sporthändler
+	•	🧑‍💻 Tech-Stack-Empfehlung (z. B. einfaches CMS + Export)
+
+Sag mir einfach, was du als Nächstes brauchst oder ob ich das PRD jetzt noch verschlanken / härten soll für Entwickler.
