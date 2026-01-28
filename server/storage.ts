@@ -17,6 +17,10 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
 
+  // Admin password
+  getAdminPassword(): Promise<string>;
+  setAdminPassword(password: string): Promise<void>;
+
   // Products
   getAllProducts(): Promise<Product[]>;
   getProduct(id: string): Promise<Product | undefined>;
@@ -44,15 +48,26 @@ export class MemStorage implements IStorage {
   private products: Map<string, Product>;
   private campaigns: Map<string, Campaign>;
   private orders: Map<string, Order>;
+  private adminPassword: string;
 
   constructor() {
     this.users = new Map();
     this.products = new Map();
     this.campaigns = new Map();
     this.orders = new Map();
+    this.adminPassword = "12345"; // Default admin password
 
     // Add sample products for demonstration
     this.initializeSampleData();
+  }
+
+  // Admin password
+  async getAdminPassword(): Promise<string> {
+    return this.adminPassword;
+  }
+
+  async setAdminPassword(password: string): Promise<void> {
+    this.adminPassword = password;
   }
 
   private initializeSampleData() {

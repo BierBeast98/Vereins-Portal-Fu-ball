@@ -1,6 +1,6 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -9,9 +9,12 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import NotFound from "@/pages/not-found";
 import HomePage from "@/pages/home";
 import OrderFormPage from "@/pages/order-form";
+import AdminLoginPage from "@/pages/admin/login";
 import ProductsPage from "@/pages/admin/products";
 import CampaignsPage from "@/pages/admin/campaigns";
 import OrdersPage from "@/pages/admin/orders";
+import SettingsPage from "@/pages/admin/settings";
+import { Loader2 } from "lucide-react";
 
 function AdminLayout({ children }: { children: React.ReactNode }) {
   const style = {
@@ -37,20 +40,46 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
+  const { data, isLoading } = useQuery<{ isAdmin: boolean }>({
+    queryKey: ["/api/auth/check"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!data?.isAdmin) {
+    return <Redirect to="/admin/login" />;
+  }
+
+  return <AdminLayout>{children}</AdminLayout>;
+}
+
 function Router() {
   const [location] = useLocation();
   const isAdminRoute = location.startsWith("/admin");
+  const isLoginRoute = location === "/admin/login";
+
+  if (isLoginRoute) {
+    return <AdminLoginPage />;
+  }
 
   if (isAdminRoute) {
     return (
-      <AdminLayout>
+      <ProtectedAdminRoute>
         <Switch>
           <Route path="/admin/products" component={ProductsPage} />
           <Route path="/admin/campaigns" component={CampaignsPage} />
           <Route path="/admin/orders" component={OrdersPage} />
+          <Route path="/admin/settings" component={SettingsPage} />
           <Route component={NotFound} />
         </Switch>
-      </AdminLayout>
+      </ProtectedAdminRoute>
     );
   }
 

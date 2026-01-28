@@ -1,4 +1,5 @@
 import { useLocation, Link } from "wouter";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -11,7 +12,9 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Package, Calendar, ClipboardList, ExternalLink, Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 const adminItems = [
   {
@@ -29,10 +32,26 @@ const adminItems = [
     url: "/admin/orders",
     icon: ClipboardList,
   },
+  {
+    title: "Einstellungen",
+    url: "/admin/settings",
+    icon: Settings,
+  },
 ];
 
 export function AppSidebar() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/auth/logout", {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/check"] });
+      setLocation("/admin/login");
+    },
+  });
 
   return (
     <Sidebar>
@@ -84,7 +103,17 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 space-y-3">
+        <Button
+          variant="outline"
+          className="w-full justify-start"
+          onClick={() => logoutMutation.mutate()}
+          disabled={logoutMutation.isPending}
+          data-testid="button-logout"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Abmelden
+        </Button>
         <div className="text-xs text-muted-foreground">
           TSV Bestellportal v1.0
         </div>

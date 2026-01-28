@@ -1,14 +1,72 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertProductSchema, insertCampaignSchema, insertOrderSchema } from "@shared/schema";
 import { z } from "zod";
 
+// Middleware to protect admin routes
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session.isAdmin) {
+    return res.status(401).json({ error: "Nicht autorisiert" });
+  }
+  next();
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Products CRUD
+  // Auth endpoints
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { password } = req.body;
+      const adminPassword = await storage.getAdminPassword();
+      
+      if (password === adminPassword) {
+        req.session.isAdmin = true;
+        res.json({ success: true });
+      } else {
+        res.status(401).json({ error: "Falsches Passwort" });
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Login fehlgeschlagen" });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Logout fehlgeschlagen" });
+      }
+      res.json({ success: true });
+    });
+  });
+
+  app.get("/api/auth/check", (req, res) => {
+    res.json({ isAdmin: !!req.session.isAdmin });
+  });
+
+  app.post("/api/auth/change-password", requireAdmin, async (req, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      const adminPassword = await storage.getAdminPassword();
+      
+      if (currentPassword !== adminPassword) {
+        return res.status(401).json({ error: "Aktuelles Passwort ist falsch" });
+      }
+      
+      if (!newPassword || newPassword.length < 1) {
+        return res.status(400).json({ error: "Neues Passwort ist erforderlich" });
+      }
+      
+      await storage.setAdminPassword(newPassword);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Passwortänderung fehlgeschlagen" });
+    }
+  });
+
+  // Products CRUD (protected)
   app.get("/api/products", async (req, res) => {
     try {
       const products = await storage.getAllProducts();
@@ -30,7 +88,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/products", async (req, res) => {
+  app.post("/api/products", requireAdmin, async (req, res) => {
     try {
       const data = insertProductSchema.parse(req.body);
       const product = await storage.createProduct(data);
@@ -43,10 +101,10 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/products/:id", async (req, res) => {
+  app.patch("/api/products/:id", requireAdmin, async (req, res) => {
     try {
       const data = insertProductSchema.partial().parse(req.body);
-      const product = await storage.updateProduct(req.params.id, data);
+      const product = await storage.updateProduct(req.params.id as string, data);
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -59,9 +117,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/products/:id", async (req, res) => {
+  app.delete("/api/products/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteProduct(req.params.id);
+      const deleted = await storage.deleteProduct(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -102,7 +160,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/campaigns", async (req, res) => {
+  app.post("/api/campaigns", requireAdmin, async (req, res) => {
     try {
       const data = insertCampaignSchema.parse(req.body);
       const campaign = await storage.createCampaign(data);
@@ -115,10 +173,10 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/campaigns/:id", async (req, res) => {
+  app.patch("/api/campaigns/:id", requireAdmin, async (req, res) => {
     try {
       const data = insertCampaignSchema.partial().parse(req.body);
-      const campaign = await storage.updateCampaign(req.params.id, data);
+      const campaign = await storage.updateCampaign(req.params.id as string, data);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -131,9 +189,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/campaigns/:id", async (req, res) => {
+  app.delete("/api/campaigns/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteCampaign(req.params.id);
+      const deleted = await storage.deleteCampaign(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -143,8 +201,8 @@ export async function registerRoutes(
     }
   });
 
-  // Orders
-  app.get("/api/orders", async (req, res) => {
+  // Orders (admin only for viewing)
+  app.get("/api/orders", requireAdmin, async (req, res) => {
     try {
       const orders = await storage.getAllOrders();
       res.json(orders);
@@ -153,9 +211,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/orders/campaign/:campaignId", async (req, res) => {
+  app.get("/api/orders/campaign/:campaignId", requireAdmin, async (req, res) => {
     try {
-      const orders = await storage.getOrdersByCampaign(req.params.campaignId);
+      const orders = await storage.getOrdersByCampaign(req.params.campaignId as string);
       res.json(orders);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch orders" });
@@ -175,11 +233,12 @@ export async function registerRoutes(
     }
   });
 
-  // Excel Export
-  app.get("/api/orders/export/:campaignId", async (req, res) => {
+  // Excel Export (admin only)
+  app.get("/api/orders/export/:campaignId", requireAdmin, async (req, res) => {
     try {
-      const orders = await storage.getOrdersByCampaign(req.params.campaignId);
-      const campaign = await storage.getCampaign(req.params.campaignId);
+      const campaignId = req.params.campaignId as string;
+      const orders = await storage.getOrdersByCampaign(campaignId);
+      const campaign = await storage.getCampaign(campaignId);
 
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
