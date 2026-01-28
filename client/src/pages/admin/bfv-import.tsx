@@ -6,8 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { 
@@ -17,8 +16,7 @@ import {
   RefreshCw, 
   ExternalLink,
   Calendar,
-  CheckCircle,
-  AlertCircle
+  CheckCircle
 } from "lucide-react";
 import type { BfvImportConfig, CalendarEvent } from "@shared/schema";
 import { TEAMS, TEAM_LABELS } from "@shared/schema";
@@ -95,10 +93,35 @@ export default function BfvImportPage() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/bfv-configs"] });
+      
+      let description = "";
+      if (data.imported > 0) {
+        description += `${data.imported} neue Spiele importiert`;
+      }
+      if (data.updated > 0) {
+        description += description ? `, ${data.updated} aktualisiert` : `${data.updated} Spiele aktualisiert`;
+      }
+      if (data.imported === 0 && data.updated === 0) {
+        description = "Keine neuen Spiele gefunden";
+      }
+      if (data.usedSampleData) {
+        description += " (Demo-Daten)";
+      }
+      
       toast({ 
-        title: "Import erfolgreich", 
-        description: `${data.imported || 0} Spiele importiert` 
+        title: data.fetchError ? "Import mit Einschränkungen" : "Import erfolgreich", 
+        description,
+        variant: data.fetchError ? "default" : "default"
       });
+      
+      if (data.fetchError) {
+        toast({
+          title: "Hinweis",
+          description: data.fetchError + " - Demo-Daten wurden verwendet",
+          variant: "default"
+        });
+      }
+      
       setImporting(null);
     },
     onError: (error: any) => {
@@ -143,6 +166,9 @@ export default function BfvImportPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>BFV-Import konfigurieren</DialogTitle>
+              <DialogDescription>
+                Mannschaft für den automatischen Spielplan-Import hinzufügen
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div>

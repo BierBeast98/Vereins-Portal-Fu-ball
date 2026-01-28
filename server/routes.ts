@@ -631,41 +631,35 @@ export async function registerRoutes(
   app.post("/api/calendar/bfv-import/:configId", requireAdmin, async (req, res) => {
     try {
       const configId = req.params.configId as string;
+      const useSampleData = req.query.sample === "true";
       const config = await storage.getBfvImportConfig(configId);
       
       if (!config) {
         return res.status(404).json({ error: "BFV-Konfiguration nicht gefunden" });
       }
 
-      // Parse team page URL to get matches
-      // BFV URLs have format: https://www.bfv.de/mannschaften/{team-name}/{team-id}
       const bfvUrl = config.bfvTeamUrl;
-      
-      // For TSV Greding, we'll simulate fetching data from BFV
-      // In production, this would fetch and parse the actual BFV page
       const importedMatches: any[] = [];
+      const updatedMatches: any[] = [];
+      let fetchFailed = false;
+      let fetchError: string | null = null;
       
-      try {
-        // Attempt to fetch BFV page
-        const response = await fetch(bfvUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (compatible; TSV-Portal/1.0)",
-            "Accept": "text/html,application/xhtml+xml",
-          },
-        });
-        
-        if (response.ok) {
-          const html = await response.text();
+      if (!useSampleData) {
+        try {
+          const response = await fetch(bfvUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (compatible; TSV-Portal/1.0)",
+              "Accept": "text/html,application/xhtml+xml",
+            },
+          });
           
-          // Parse matches from BFV HTML
-          // BFV uses structured data that we can extract
-          const matches = parseBfvMatches(html, config.team);
-          
-          for (const match of matches) {
-            // Check if already imported
-            const existing = await storage.getCalendarEventByBfvId(match.bfvMatchId);
+          if (response.ok) {
+            const html = await response.text();
+            const matches = parseBfvMatches(html, config.team);
             
-            if (!existing) {
+            for (const match of matches) {
+              const existing = await storage.getCalendarEventByBfvId(match.bfvMatchId);
+              
               const eventData = {
                 title: match.isHome 
                   ? `TSV Greding vs ${match.opponent}`
@@ -684,31 +678,42 @@ export async function registerRoutes(
                 bfvMatchId: match.bfvMatchId,
               };
               
-              await storage.createCalendarEvent(eventData);
-              importedMatches.push(eventData);
+              if (existing) {
+                await storage.updateCalendarEvent(existing.id, eventData);
+                updatedMatches.push(eventData);
+              } else {
+                await storage.createCalendarEvent(eventData);
+                importedMatches.push(eventData);
+              }
             }
+          } else {
+            fetchFailed = true;
+            fetchError = `BFV-Server nicht erreichbar (Status: ${response.status})`;
           }
+        } catch (err) {
+          console.error("BFV fetch error:", err);
+          fetchFailed = true;
+          fetchError = "Verbindung zum BFV-Server fehlgeschlagen";
         }
-      } catch (fetchError) {
-        console.error("BFV fetch error:", fetchError);
-        // Continue with demo data for testing
       }
 
-      // If no matches could be fetched, add sample data for demonstration
-      if (importedMatches.length === 0) {
+      // Only use sample data if explicitly requested or for demonstration purposes
+      if (useSampleData || (fetchFailed && importedMatches.length === 0)) {
         const sampleMatches = generateSampleBfvMatches(config.team);
         
         for (const match of sampleMatches) {
-          const existing = await storage.getCalendarEventByBfvId(match.bfvMatchId);
+          const existing = await storage.getCalendarEventByBfvId(match.bfvMatchId!);
           
-          if (!existing) {
+          if (existing) {
+            await storage.updateCalendarEvent(existing.id, match);
+            updatedMatches.push(match);
+          } else {
             await storage.createCalendarEvent(match);
             importedMatches.push(match);
           }
         }
       }
 
-      // Update last import timestamp
       await storage.updateBfvImportConfig(configId, {
         lastImport: new Date().toISOString(),
       });
@@ -716,6 +721,9 @@ export async function registerRoutes(
       res.json({ 
         success: true, 
         imported: importedMatches.length,
+        updated: updatedMatches.length,
+        usedSampleData: useSampleData || fetchFailed,
+        fetchError: fetchError,
         matches: importedMatches 
       });
     } catch (error) {
