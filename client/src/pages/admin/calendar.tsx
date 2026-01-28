@@ -504,6 +504,32 @@ export default function CalendarPage() {
     return colors[type];
   };
 
+  const getTeamShortLabel = (team?: string): string => {
+    if (!team) return "";
+    const shortLabels: Record<string, string> = {
+      "herren": "H1",
+      "herren2": "H2",
+      "a-jugend": "A",
+      "b-jugend": "B",
+      "c-jugend": "C",
+      "d-jugend": "D",
+      "e-jugend": "E",
+      "f-jugend": "F",
+      "g-jugend": "G",
+      "damen": "D♀",
+      "alte-herren": "AH",
+    };
+    return shortLabels[team] || "";
+  };
+
+  const getEventDisplayLabel = (event: CalendarEvent): string => {
+    const teamShort = getTeamShortLabel(event.team);
+    if (teamShort) {
+      return `[${teamShort}] ${event.title}`;
+    }
+    return event.title;
+  };
+
   const renderYearView = () => {
     const monthsFirstHalf = [0, 1, 2, 3, 4, 5];
     const monthsSecondHalf = [6, 7, 8, 9, 10, 11];
@@ -558,9 +584,10 @@ export default function CalendarPage() {
                         className={`text-xs px-1 rounded ${getEventColorClass(primaryEvent.type)}`}
                         onClick={(e) => handleEventClick(primaryEvent, e)}
                       >
-                        {primaryEvent.title.length > 15 
-                          ? primaryEvent.title.substring(0, 15) + "..." 
-                          : primaryEvent.title}
+                        {(() => {
+                          const label = getEventDisplayLabel(primaryEvent);
+                          return label.length > 18 ? label.substring(0, 18) + "..." : label;
+                        })()}
                       </span>
                     )}
                     {dayEvents.length > 1 && (
@@ -679,6 +706,7 @@ export default function CalendarPage() {
                         onClick={(e) => handleEventClick(event, e)}
                         data-testid={`event-badge-${event.id}`}
                       >
+                        {event.team && <span className="font-bold mr-1">[{getTeamShortLabel(event.team)}]</span>}
                         {event.startTime} {event.title}
                       </Badge>
                     ))}
