@@ -127,34 +127,42 @@ function parseBfvPdf(text: string): ParsedPdfMatch[] {
     
     const isHome = homeTeam.includes("TSV Greding");
     
-    // Determine which Greding team based on team name or section context
+    // Determine which Greding team based on section context FIRST, then team name
     let team: Team = "herren";
     const gredingTeamStr = isHome ? homeTeam : awayTeam;
     
-    if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
-      team = "herren2";
-    } else {
-      // Find the section this match belongs to
-      let currentSection = "";
-      for (const section of sections) {
-        if (section.pos < matchPos) {
-          currentSection = section.name;
-        } else {
-          break;
+    // Find the section this match belongs to FIRST
+    let currentSection = "";
+    for (const section of sections) {
+      if (section.pos < matchPos) {
+        currentSection = section.name;
+      } else {
+        break;
+      }
+    }
+    
+    // Check section context first - youth teams take priority
+    if (currentSection) {
+      const sectionLower = currentSection.toLowerCase();
+      if (sectionLower.includes("e-juni") || sectionLower.includes("e-jugend")) team = "e-jugend";
+      else if (sectionLower.includes("f-juni") || sectionLower.includes("f-jugend")) team = "f-jugend";
+      else if (sectionLower.includes("d-juni") || sectionLower.includes("d-jugend")) team = "d-jugend";
+      else if (sectionLower.includes("c-juni") || sectionLower.includes("c-jugend")) team = "c-jugend";
+      else if (sectionLower.includes("b-juni") || sectionLower.includes("b-jugend")) team = "b-jugend";
+      else if (sectionLower.includes("a-juni") || sectionLower.includes("a-jugend")) team = "a-jugend";
+      else if (sectionLower.includes("g-juni") || sectionLower.includes("g-jugend")) team = "g-jugend";
+      else if (sectionLower.includes("damen")) team = "damen";
+      else if (sectionLower.includes("alte")) team = "alte-herren";
+      else if (sectionLower === "herren") {
+        // Only for Herren section, check for II or 2 suffix
+        if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
+          team = "herren2";
         }
       }
-      
-      if (currentSection) {
-        const sectionLower = currentSection.toLowerCase();
-        if (sectionLower.includes("e-juni") || sectionLower.includes("e-jugend")) team = "e-jugend";
-        else if (sectionLower.includes("f-juni") || sectionLower.includes("f-jugend")) team = "f-jugend";
-        else if (sectionLower.includes("d-juni") || sectionLower.includes("d-jugend")) team = "d-jugend";
-        else if (sectionLower.includes("c-juni") || sectionLower.includes("c-jugend")) team = "c-jugend";
-        else if (sectionLower.includes("b-juni") || sectionLower.includes("b-jugend")) team = "b-jugend";
-        else if (sectionLower.includes("a-juni") || sectionLower.includes("a-jugend")) team = "a-jugend";
-        else if (sectionLower.includes("g-juni") || sectionLower.includes("g-jugend")) team = "g-jugend";
-        else if (sectionLower.includes("damen")) team = "damen";
-        else if (sectionLower.includes("alte")) team = "alte-herren";
+    } else {
+      // No section context - fall back to checking team name for II/2
+      if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
+        team = "herren2";
       }
     }
     
