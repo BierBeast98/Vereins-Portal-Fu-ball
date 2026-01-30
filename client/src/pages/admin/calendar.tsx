@@ -524,10 +524,15 @@ export default function CalendarPage() {
 
   const getEventDisplayLabel = (event: CalendarEvent): string => {
     const teamShort = getTeamShortLabel(event.team);
+    const awayMarker = event.type === "spiel" && event.isHomeGame === false ? "(A)" : "";
     if (teamShort) {
-      return `[${teamShort}] ${event.title}`;
+      return `[${teamShort}]${awayMarker} ${event.title}`;
     }
-    return event.title;
+    return awayMarker ? `${awayMarker} ${event.title}` : event.title;
+  };
+  
+  const isAwayGame = (event: CalendarEvent): boolean => {
+    return event.type === "spiel" && event.isHomeGame === false;
   };
 
   const renderYearView = () => {
@@ -581,7 +586,7 @@ export default function CalendarPage() {
                   <span className="flex-1 ml-1 truncate">
                     {primaryEvent && (
                       <span 
-                        className={`text-xs px-1 rounded ${getEventColorClass(primaryEvent.type)}`}
+                        className={`text-xs px-1 rounded ${getEventColorClass(primaryEvent.type)} ${isAwayGame(primaryEvent) ? "italic border border-current" : ""}`}
                         onClick={(e) => handleEventClick(primaryEvent, e)}
                       >
                         {(() => {
@@ -702,11 +707,11 @@ export default function CalendarPage() {
                     {dayEvents.map((event) => (
                       <Badge
                         key={event.id}
-                        className={`${getEventColorClass(event.type)} cursor-pointer`}
+                        className={`${getEventColorClass(event.type)} cursor-pointer ${isAwayGame(event) ? "italic border border-current" : ""}`}
                         onClick={(e) => handleEventClick(event, e)}
                         data-testid={`event-badge-${event.id}`}
                       >
-                        {event.team && <span className="font-bold mr-1">[{getTeamShortLabel(event.team)}]</span>}
+                        {event.team && <span className="font-bold mr-1">[{getTeamShortLabel(event.team)}]{isAwayGame(event) ? "(A)" : ""}</span>}
                         {event.startTime} {event.title}
                       </Badge>
                     ))}
@@ -762,7 +767,7 @@ export default function CalendarPage() {
               {dayEvents.map((event) => (
                 <div
                   key={event.id}
-                  className={`p-3 rounded-md cursor-pointer hover-elevate ${getEventColorClass(event.type)}`}
+                  className={`p-3 rounded-md cursor-pointer hover-elevate ${getEventColorClass(event.type)} ${isAwayGame(event) ? "border-2 border-dashed border-current" : ""}`}
                   onClick={() => {
                     setEditingEvent(event);
                     setDialogOpen(true);
@@ -770,7 +775,10 @@ export default function CalendarPage() {
                   data-testid={`day-event-${event.id}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold">{event.title}</span>
+                    <span className={`font-semibold ${isAwayGame(event) ? "italic" : ""}`}>
+                      {isAwayGame(event) && <span className="mr-1">(A)</span>}
+                      {event.title}
+                    </span>
                     <span>{event.startTime} - {event.endTime}</span>
                   </div>
                   {event.team && (
