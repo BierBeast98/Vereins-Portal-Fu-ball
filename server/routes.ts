@@ -88,111 +88,94 @@ interface ParsedPdfMatch {
 
 function parseBfvPdf(text: string): ParsedPdfMatch[] {
   const matches: ParsedPdfMatch[] = [];
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   
-  let currentSection: string | undefined;
-  let i = 0;
+  // The PDF text comes as continuous text with spaces
+  // Pattern: TYPE LEAGUE DATE TIME HOMETEAM - AWAYTEAM LOCATION
+  // Example: FS Freundschaftsspiele 20.02.2026 19:00 DJK Enkering - TSV Greding II Sportplatz...
   
-  while (i < lines.length) {
-    const line = lines[i];
+  // Find all section markers to determine team context
+  const sectionPattern = /\b(Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|E-Junioren|F-Junioren|Alte Herren)\b/gi;
+  const sections: { name: string; pos: number }[] = [];
+  let sectionMatch;
+  while ((sectionMatch = sectionPattern.exec(text)) !== null) {
+    sections.push({ name: sectionMatch[1], pos: sectionMatch.index });
+  }
+  
+  // Main pattern to find matches: TYPE LEAGUE DATE TIME TEAM1 - TEAM2
+  // Match format: (FS|ME|HM|PO) (League) (DD.MM.YYYY) (HH:MM) (Team1) - (Team2)
+  const matchPattern = /\b(FS|ME|HM|PO)\s+([\w\s-]+?)\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s+([^-]+?)\s+-\s+([A-Za-zÄÖÜäöüß0-9\s()/.]+?)(?=\s+(?:Sportanlage|Sportplatz|Gemeindehalle|FS|ME|HM|PO|Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|Kursiv|Seite|\d{2}\.\d{2}\.\d{4})|\s*$)/gi;
+  
+  let match;
+  while ((match = matchPattern.exec(text)) !== null) {
+    const [fullMatch, type, leagueRaw, dateStr, timeStr, homeTeamRaw, awayTeamRaw] = match;
+    const matchPos = match.index;
     
-    // Detect section headers like "Herren", "E-Junioren", etc.
-    if (/^(Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|E-Junioren|F-Junioren|Alte Herren)$/i.test(line)) {
-      currentSection = line;
-      i++;
+    // Clean up team names
+    let homeTeam = homeTeamRaw.trim();
+    let awayTeam = awayTeamRaw.trim();
+    
+    // Skip SPIELFREI entries
+    if (awayTeam === "SPIELFREI" || homeTeam === "SPIELFREI") {
       continue;
     }
     
-    // Look for date pattern DD.MM.YYYY
-    const dateMatch = line.match(/(\d{2}\.\d{2}\.\d{4})/);
-    if (dateMatch) {
-      // Try to parse a match line
-      // Format: TYP KLASSE DATUM UHRZEIT PARTIE
-      // Example: ME Bezirksliga 08.03.2026 14:00 TSV Greding - TSV Heideck
+    // Check if it's a TSV Greding match
+    const isGredingMatch = homeTeam.includes("TSV Greding") || awayTeam.includes("TSV Greding");
+    if (!isGredingMatch) {
+      continue;
+    }
+    
+    const isHome = homeTeam.includes("TSV Greding");
+    
+    // Determine which Greding team based on team name or section context
+    let team: Team = "herren";
+    const gredingTeamStr = isHome ? homeTeam : awayTeam;
+    
+    if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
+      team = "herren2";
+    } else {
+      // Find the section this match belongs to
+      let currentSection = "";
+      for (const section of sections) {
+        if (section.pos < matchPos) {
+          currentSection = section.name;
+        } else {
+          break;
+        }
+      }
       
-      const fullLine = line;
-      const timeMatch = fullLine.match(/(\d{2}:\d{2})/);
-      
-      if (timeMatch) {
-        const dateStr = dateMatch[1];
-        const timeStr = timeMatch[1];
-        
-        // Extract type and league from the beginning
-        let type = "";
-        let league = "";
-        const typeMatch = fullLine.match(/^(FS|ME|HM|PO)\s+/);
-        if (typeMatch) {
-          type = typeMatch[1];
-        }
-        
-        // Extract league (between type and date)
-        const leagueMatch = fullLine.match(/(?:FS|ME|HM|PO)?\s*((?:Freundschaftsspiele|Bezirksliga|A Klasse|Kreisliga|Kreispokal|Hallen-Kreisturnier)[^\d]*)/i);
-        if (leagueMatch) {
-          league = leagueMatch[1].trim();
-        }
-        
-        // Extract teams from the partie section (after time)
-        const afterTime = fullLine.substring(fullLine.indexOf(timeStr) + 5).trim();
-        const teamMatch = afterTime.match(/(.+?)\s+-\s+(.+)/);
-        
-        if (teamMatch) {
-          let homeTeam = teamMatch[1].trim();
-          let awayTeam = teamMatch[2].trim();
-          
-          // Check if it's a TSV Greding match
-          const isGredingMatch = homeTeam.includes("TSV Greding") || awayTeam.includes("TSV Greding");
-          
-          if (isGredingMatch && awayTeam !== "SPIELFREI") {
-            const isHome = homeTeam.includes("TSV Greding");
-            
-            // Determine which Greding team
-            let team: Team = "herren";
-            const gredingTeamStr = isHome ? homeTeam : awayTeam;
-            
-            if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
-              team = "herren2";
-            } else if (currentSection) {
-              // Use section context for youth teams
-              const sectionLower = currentSection.toLowerCase();
-              if (sectionLower.includes("e-juni") || sectionLower.includes("e-jugend")) team = "e-jugend";
-              else if (sectionLower.includes("f-juni") || sectionLower.includes("f-jugend")) team = "f-jugend";
-              else if (sectionLower.includes("d-juni") || sectionLower.includes("d-jugend")) team = "d-jugend";
-              else if (sectionLower.includes("c-juni") || sectionLower.includes("c-jugend")) team = "c-jugend";
-              else if (sectionLower.includes("b-juni") || sectionLower.includes("b-jugend")) team = "b-jugend";
-              else if (sectionLower.includes("a-juni") || sectionLower.includes("a-jugend")) team = "a-jugend";
-              else if (sectionLower.includes("g-juni") || sectionLower.includes("g-jugend")) team = "g-jugend";
-              else if (sectionLower.includes("damen")) team = "damen";
-              else if (sectionLower.includes("alte")) team = "alte-herren";
-            }
-            
-            // Convert date from DD.MM.YYYY to YYYY-MM-DD
-            const [day, month, year] = dateStr.split('.');
-            const isoDate = `${year}-${month}-${day}`;
-            
-            // Check for location in next line
-            let location: string | undefined;
-            if (i + 1 < lines.length && lines[i + 1].includes("Sportanlage") || lines[i + 1].includes("Sportplatz")) {
-              location = lines[i + 1];
-              i++;
-            }
-            
-            matches.push({
-              type,
-              league,
-              date: isoDate,
-              time: timeStr,
-              homeTeam,
-              awayTeam,
-              location,
-              team,
-              isHome,
-            });
-          }
-        }
+      if (currentSection) {
+        const sectionLower = currentSection.toLowerCase();
+        if (sectionLower.includes("e-juni") || sectionLower.includes("e-jugend")) team = "e-jugend";
+        else if (sectionLower.includes("f-juni") || sectionLower.includes("f-jugend")) team = "f-jugend";
+        else if (sectionLower.includes("d-juni") || sectionLower.includes("d-jugend")) team = "d-jugend";
+        else if (sectionLower.includes("c-juni") || sectionLower.includes("c-jugend")) team = "c-jugend";
+        else if (sectionLower.includes("b-juni") || sectionLower.includes("b-jugend")) team = "b-jugend";
+        else if (sectionLower.includes("a-juni") || sectionLower.includes("a-jugend")) team = "a-jugend";
+        else if (sectionLower.includes("g-juni") || sectionLower.includes("g-jugend")) team = "g-jugend";
+        else if (sectionLower.includes("damen")) team = "damen";
+        else if (sectionLower.includes("alte")) team = "alte-herren";
       }
     }
     
-    i++;
+    // Convert date from DD.MM.YYYY to YYYY-MM-DD
+    const [day, month, year] = dateStr.split('.');
+    const isoDate = `${year}-${month}-${day}`;
+    
+    // Clean up league name
+    let league = leagueRaw.trim();
+    
+    matches.push({
+      type,
+      league,
+      date: isoDate,
+      time: timeStr,
+      homeTeam,
+      awayTeam,
+      location: undefined,
+      team,
+      isHome,
+    });
   }
   
   return matches;
