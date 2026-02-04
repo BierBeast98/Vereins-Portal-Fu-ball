@@ -1,6 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { dbStorage } from "./dbStorage";
+import { importBfvMatches, type ParsedBfvMatch, parseTeamFromName } from "./bfvImportService";
 import { 
   insertProductSchema, 
   insertCampaignSchema, 
@@ -11,7 +13,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import { sendOrderConfirmation } from "./email";
-import type { Team, InsertCalendarEvent } from "@shared/schema";
+import type { Team, InsertCalendarEvent, Field } from "@shared/schema";
 import multer from "multer";
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -552,7 +554,10 @@ export async function registerRoutes(
   // PLANNING MODULE - Calendar Events (Admin only)
   // ============================================
 
-  // Get all calendar events
+  // Initialize default field mappings on startup
+  dbStorage.initializeDefaultFieldMappings().catch(console.error);
+
+  // Get all calendar events (from database)
   app.get("/api/calendar/events", requireAdmin, async (req, res) => {
     try {
       const { startDate, endDate, field, team, type } = req.query;
@@ -560,19 +565,19 @@ export async function registerRoutes(
 
       if (startDate && endDate) {
         if (field) {
-          events = await storage.getCalendarEventsByField(
+          events = await dbStorage.getCalendarEventsByField(
             field as string,
             startDate as string,
             endDate as string
           );
         } else {
-          events = await storage.getCalendarEventsByDateRange(
+          events = await dbStorage.getCalendarEventsByDateRange(
             startDate as string,
             endDate as string
           );
         }
       } else {
-        events = await storage.getAllCalendarEvents();
+        events = await dbStorage.getAllCalendarEvents();
       }
 
       // Additional filtering
@@ -585,6 +590,7 @@ export async function registerRoutes(
 
       res.json(events);
     } catch (error) {
+      console.error("Error loading calendar events:", error);
       res.status(500).json({ error: "Termine konnten nicht geladen werden" });
     }
   });
@@ -592,7 +598,7 @@ export async function registerRoutes(
   // Get single calendar event
   app.get("/api/calendar/events/:id", requireAdmin, async (req, res) => {
     try {
-      const event = await storage.getCalendarEvent(req.params.id as string);
+      const event = await dbStorage.getCalendarEvent(req.params.id as string);
       if (!event) {
         return res.status(404).json({ error: "Termin nicht gefunden" });
       }
@@ -606,12 +612,13 @@ export async function registerRoutes(
   app.post("/api/calendar/events", requireAdmin, async (req, res) => {
     try {
       const data = insertCalendarEventSchema.parse(req.body);
-      const event = await storage.createCalendarEvent(data);
+      const event = await dbStorage.createCalendarEvent(data);
       res.status(201).json(event);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
+      console.error("Error creating calendar event:", error);
       res.status(500).json({ error: "Termin konnte nicht erstellt werden" });
     }
   });
@@ -620,7 +627,7 @@ export async function registerRoutes(
   app.patch("/api/calendar/events/:id", requireAdmin, async (req, res) => {
     try {
       const data = insertCalendarEventSchema.partial().parse(req.body);
-      const event = await storage.updateCalendarEvent(req.params.id as string, data);
+      const event = await dbStorage.updateCalendarEvent(req.params.id as string, data);
       if (!event) {
         return res.status(404).json({ error: "Termin nicht gefunden" });
       }
@@ -636,7 +643,7 @@ export async function registerRoutes(
   // Delete calendar event
   app.delete("/api/calendar/events/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteCalendarEvent(req.params.id as string);
+      const deleted = await dbStorage.deleteCalendarEvent(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Termin nicht gefunden" });
       }
@@ -654,7 +661,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Start- und Enddatum erforderlich" });
       }
 
-      const events = await storage.getCalendarEventsByDateRange(
+      const events = await dbStorage.getCalendarEventsByDateRange(
         startDate as string,
         endDate as string
       );
@@ -695,7 +702,7 @@ export async function registerRoutes(
   // Field Mappings
   app.get("/api/calendar/field-mappings", requireAdmin, async (req, res) => {
     try {
-      const mappings = await storage.getAllFieldMappings();
+      const mappings = await dbStorage.getAllFieldMappings();
       res.json(mappings);
     } catch (error) {
       res.status(500).json({ error: "Platzzuordnungen konnten nicht geladen werden" });
@@ -705,7 +712,7 @@ export async function registerRoutes(
   app.post("/api/calendar/field-mappings", requireAdmin, async (req, res) => {
     try {
       const data = insertFieldMappingSchema.parse(req.body);
-      const mapping = await storage.createFieldMapping(data);
+      const mapping = await dbStorage.createFieldMapping(data);
       res.status(201).json(mapping);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -717,7 +724,7 @@ export async function registerRoutes(
 
   app.delete("/api/calendar/field-mappings/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteFieldMapping(req.params.id as string);
+      const deleted = await dbStorage.deleteFieldMapping(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Platzzuordnung nicht gefunden" });
       }
@@ -730,7 +737,7 @@ export async function registerRoutes(
   // BFV Import Config
   app.get("/api/calendar/bfv-configs", requireAdmin, async (req, res) => {
     try {
-      const configs = await storage.getAllBfvImportConfigs();
+      const configs = await dbStorage.getAllBfvImportConfigs();
       res.json(configs);
     } catch (error) {
       res.status(500).json({ error: "BFV-Konfigurationen konnten nicht geladen werden" });
@@ -740,7 +747,7 @@ export async function registerRoutes(
   app.post("/api/calendar/bfv-configs", requireAdmin, async (req, res) => {
     try {
       const data = insertBfvImportConfigSchema.parse(req.body);
-      const config = await storage.createBfvImportConfig(data);
+      const config = await dbStorage.createBfvImportConfig(data);
       res.status(201).json(config);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -752,7 +759,7 @@ export async function registerRoutes(
 
   app.delete("/api/calendar/bfv-configs/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteBfvImportConfig(req.params.id as string);
+      const deleted = await dbStorage.deleteBfvImportConfig(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "BFV-Konfiguration nicht gefunden" });
       }
@@ -761,13 +768,23 @@ export async function registerRoutes(
       res.status(500).json({ error: "BFV-Konfiguration konnte nicht gelöscht werden" });
     }
   });
+  
+  // Import history
+  app.get("/api/calendar/import-history", requireAdmin, async (req, res) => {
+    try {
+      const history = await dbStorage.getImportHistory();
+      res.json(history);
+    } catch (error) {
+      res.status(500).json({ error: "Import-Historie konnte nicht geladen werden" });
+    }
+  });
 
   // BFV Import - Fetch and import matches from BFV website
   app.post("/api/calendar/bfv-import/:configId", requireAdmin, async (req, res) => {
     try {
       const configId = req.params.configId as string;
       const useSampleData = req.query.sample === "true";
-      const config = await storage.getBfvImportConfig(configId);
+      const config = await dbStorage.getBfvImportConfig(configId);
       
       if (!config) {
         return res.status(404).json({ error: "BFV-Konfiguration nicht gefunden" });
@@ -793,7 +810,7 @@ export async function registerRoutes(
             const matches = parseBfvMatches(html, config.team);
             
             for (const match of matches) {
-              const existing = await storage.getCalendarEventByBfvId(match.bfvMatchId);
+              const existing = await dbStorage.getCalendarEventByBfvId(match.bfvMatchId);
               
               const eventData = {
                 title: match.isHome 
@@ -814,10 +831,10 @@ export async function registerRoutes(
               };
               
               if (existing) {
-                await storage.updateCalendarEvent(existing.id, eventData);
+                await dbStorage.updateCalendarEvent(existing.id, eventData);
                 updatedMatches.push(eventData);
               } else {
-                await storage.createCalendarEvent(eventData);
+                await dbStorage.createCalendarEvent(eventData);
                 importedMatches.push(eventData);
               }
             }
@@ -837,19 +854,19 @@ export async function registerRoutes(
         const sampleMatches = generateSampleBfvMatches(config.team);
         
         for (const match of sampleMatches) {
-          const existing = await storage.getCalendarEventByBfvId(match.bfvMatchId!);
+          const existing = await dbStorage.getCalendarEventByBfvId(match.bfvMatchId!);
           
           if (existing) {
-            await storage.updateCalendarEvent(existing.id, match);
+            await dbStorage.updateCalendarEvent(existing.id, match);
             updatedMatches.push(match);
           } else {
-            await storage.createCalendarEvent(match);
+            await dbStorage.createCalendarEvent(match);
             importedMatches.push(match);
           }
         }
       }
 
-      await storage.updateBfvImportConfig(configId, {
+      await dbStorage.updateBfvImportConfig(configId, {
         lastImport: new Date().toISOString(),
       });
 
@@ -876,7 +893,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Start- und Enddatum erforderlich" });
       }
 
-      const events = await storage.getCalendarEventsByDateRange(
+      const events = await dbStorage.getCalendarEventsByDateRange(
         startDate as string,
         endDate as string
       );
@@ -929,7 +946,7 @@ export async function registerRoutes(
     }
   });
 
-  // BFV PDF Import - Upload and parse PDF Vereinsspielplan
+  // BFV PDF Import - Upload and parse PDF Vereinsspielplan with idempotent upsert
   app.post("/api/calendar/bfv-import-pdf", requireAdmin, upload.single("pdf"), async (req, res) => {
     try {
       if (!req.file) {
@@ -948,52 +965,39 @@ export async function registerRoutes(
       
       const parsedMatches = parseBfvPdf(text);
       
-      const importedMatches: any[] = [];
-      const updatedMatches: any[] = [];
-      const skippedMatches: any[] = [];
-      
-      for (const match of parsedMatches) {
-        // Create a unique match ID based on date, time, and teams
-        const bfvMatchId = `pdf-${match.date}-${match.time}-${match.homeTeam.substring(0, 10)}-${match.awayTeam.substring(0, 10)}`.replace(/\s/g, "");
-        
-        const existing = await storage.getCalendarEventByBfvId(bfvMatchId);
-        
+      // Convert to ParsedBfvMatch format for idempotent import
+      const bfvMatches: ParsedBfvMatch[] = parsedMatches.map((match) => {
+        const externalId = `pdf-${match.date}-${match.time}-${match.homeTeam.substring(0, 10)}-${match.awayTeam.substring(0, 10)}`.replace(/\s/g, "");
         const opponent = match.isHome ? match.awayTeam : match.homeTeam;
         
-        const eventData: InsertCalendarEvent = {
-          title: match.isHome 
-            ? `TSV Greding vs ${opponent}`
-            : `${opponent} vs TSV Greding`,
-          type: "spiel",
-          team: match.team,
-          field: match.isHome ? "a-platz" : undefined,
+        return {
+          externalId,
           date: match.date,
           startTime: match.time,
           endTime: addHours(match.time, 2),
+          teamHome: match.homeTeam,
+          teamAway: match.awayTeam,
+          team: match.team,
           isHomeGame: match.isHome,
-          opponent: opponent,
+          opponent,
+          competition: match.league || "",
           location: match.isHome ? undefined : match.location,
-          competition: match.league || undefined,
-          bfvImported: true,
-          bfvMatchId: bfvMatchId,
+          rawData: match,
         };
-        
-        if (existing) {
-          await storage.updateCalendarEvent(existing.id, eventData);
-          updatedMatches.push({ ...eventData, id: existing.id });
-        } else {
-          const created = await storage.createCalendarEvent(eventData);
-          importedMatches.push(created);
-        }
-      }
+      });
+      
+      // Use idempotent import service
+      const summary = await importBfvMatches(bfvMatches, req.file.originalname);
       
       res.json({ 
         success: true, 
-        imported: importedMatches.length,
-        updated: updatedMatches.length,
-        skipped: skippedMatches.length,
+        imported: summary.createdCount,
+        updated: summary.updatedCount,
+        unchanged: summary.unchangedCount,
+        archived: summary.archivedCount,
+        errors: summary.errorCount,
         total: parsedMatches.length,
-        matches: [...importedMatches, ...updatedMatches],
+        errorMessages: summary.errors,
       });
     } catch (error) {
       console.error("PDF import error:", error);
