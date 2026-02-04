@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -35,6 +35,8 @@ import {
   AlertCircle,
   ImageIcon,
   X,
+  Home,
+  Lock,
 } from "lucide-react";
 import { format, parseISO, isPast, isFuture, isWithinInterval } from "date-fns";
 import { de } from "date-fns/locale";
@@ -499,6 +501,20 @@ export default function OrderFormPage() {
                 )}
               </Card>
             </div>
+          </div>
+        </div>
+        
+        <div className="mt-12 pt-8 border-t">
+          <div className="flex items-center justify-center gap-4 text-muted-foreground">
+            <Link href="/" className="text-sm hover:underline flex items-center gap-1" data-testid="link-home">
+              <Home className="h-4 w-4" />
+              Startseite
+            </Link>
+            <span className="text-muted-foreground/50">|</span>
+            <Link href="/admin/products" className="text-sm hover:underline flex items-center gap-1" data-testid="link-admin">
+              <Lock className="h-4 w-4" />
+              Admin-Bereich
+            </Link>
           </div>
         </div>
       </div>

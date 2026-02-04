@@ -38,7 +38,15 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="bg-primary text-primary-foreground py-16 px-4">
+      <div className="bg-primary text-primary-foreground py-16 px-4 relative">
+        <Link 
+          href="/admin/products" 
+          className="absolute top-4 right-4 text-primary-foreground/60 hover:text-primary-foreground text-sm flex items-center gap-1"
+          data-testid="link-header-admin"
+        >
+          <Lock className="h-4 w-4" />
+          Admin
+        </Link>
         <div className="max-w-4xl mx-auto text-center">
           <div className="flex items-center justify-center mb-6">
             <div className="h-16 w-16 rounded-xl bg-primary-foreground/10 flex items-center justify-center">
