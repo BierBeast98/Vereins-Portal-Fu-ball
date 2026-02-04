@@ -395,7 +395,9 @@ export default function CalendarPage() {
   const { data: events = [], isLoading } = useQuery<CalendarEvent[]>({
     queryKey: ["/api/calendar/events", startDate, endDate],
     queryFn: async () => {
-      const res = await fetch(`/api/calendar/events?startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(`/api/calendar/events?startDate=${startDate}&endDate=${endDate}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch events");
       return res.json();
     },
@@ -404,7 +406,9 @@ export default function CalendarPage() {
   const { data: conflicts = [] } = useQuery<{ event1: CalendarEvent; event2: CalendarEvent; reason: string }[]>({
     queryKey: ["/api/calendar/conflicts", startDate, endDate],
     queryFn: async () => {
-      const res = await fetch(`/api/calendar/conflicts?startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(`/api/calendar/conflicts?startDate=${startDate}&endDate=${endDate}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch conflicts");
       return res.json();
     },
