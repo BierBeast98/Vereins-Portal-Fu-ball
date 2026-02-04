@@ -82,7 +82,11 @@ interface EventFormData {
   location: string;
   competition: string;
   description: string;
+  isRecurring: boolean;
+  recurringEndDate: string;
 }
+
+const WEEKDAY_NAMES_DE = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
 function EventDialog({ 
   event, 
@@ -96,12 +100,13 @@ function EventDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
+  const defaultDate = event?.date || selectedDate || formatDate(new Date());
   const [formData, setFormData] = useState<EventFormData>({
     title: event?.title || "",
     type: event?.type || "training",
     team: event?.team,
     field: event?.field,
-    date: event?.date || selectedDate || formatDate(new Date()),
+    date: defaultDate,
     startTime: event?.startTime || "18:00",
     endTime: event?.endTime || "20:00",
     isHomeGame: event?.isHomeGame ?? true,
@@ -109,7 +114,17 @@ function EventDialog({
     location: event?.location || "",
     competition: event?.competition || "",
     description: event?.description || "",
+    isRecurring: false,
+    recurringEndDate: "",
   });
+
+  // Calculate weekday name for selected date
+  const selectedWeekday = useMemo(() => {
+    if (!formData.date) return "";
+    const [year, month, day] = formData.date.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+    return WEEKDAY_NAMES_DE[date.getDay()];
+  }, [formData.date]);
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertCalendarEvent) => {
@@ -153,10 +168,47 @@ function EventDialog({
     },
   });
 
+  // Generate all dates for recurring events
+  const generateRecurringDates = (startDate: string, endDate: string): string[] => {
+    const dates: string[] = [];
+    const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
+    const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
+    
+    const start = new Date(startYear, startMonth - 1, startDay);
+    const end = new Date(endYear, endMonth - 1, endDay);
+    const targetWeekday = start.getDay();
+    
+    let current = new Date(start);
+    while (current <= end) {
+      if (current.getDay() === targetWeekday) {
+        dates.push(formatDate(current));
+      }
+      current.setDate(current.getDate() + 1);
+    }
+    return dates;
+  };
+
+  const createRecurringMutation = useMutation({
+    mutationFn: async (events: InsertCalendarEvent[]) => {
+      // Create all events in sequence
+      for (const eventData of events) {
+        await apiRequest("POST", "/api/calendar/events", eventData);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      toast({ title: "Wiederkehrende Termine erstellt" });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Fehler beim Erstellen", variant: "destructive" });
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const data: InsertCalendarEvent = {
+    const baseData: InsertCalendarEvent = {
       title: formData.title,
       type: formData.type,
       team: formData.team,
@@ -173,13 +225,26 @@ function EventDialog({
     };
 
     if (event) {
-      updateMutation.mutate(data);
+      updateMutation.mutate(baseData);
+    } else if (formData.isRecurring && formData.recurringEndDate) {
+      // Generate all recurring dates and create events
+      const dates = generateRecurringDates(formData.date, formData.recurringEndDate);
+      const events = dates.map(date => ({ ...baseData, date }));
+      if (events.length > 0) {
+        createRecurringMutation.mutate(events);
+      }
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(baseData);
     }
   };
 
-  const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
+  const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || createRecurringMutation.isPending;
+
+  // Calculate how many recurring events will be created
+  const recurringCount = useMemo(() => {
+    if (!formData.isRecurring || !formData.recurringEndDate || !formData.date) return 0;
+    return generateRecurringDates(formData.date, formData.recurringEndDate).length;
+  }, [formData.isRecurring, formData.date, formData.recurringEndDate]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -290,6 +355,45 @@ function EventDialog({
             data-testid="input-event-end"
           />
         </div>
+
+        {/* Recurring event options - only show for new events, not for editing */}
+        {!event && (
+          <div className="col-span-2 border rounded-lg p-3 bg-muted/30">
+            <div className="flex items-center gap-3 mb-2">
+              <Switch
+                id="isRecurring"
+                checked={formData.isRecurring}
+                onCheckedChange={(checked) => setFormData({ ...formData, isRecurring: checked })}
+                data-testid="switch-recurring"
+              />
+              <Label htmlFor="isRecurring" className="font-medium">
+                Wiederkehrender Termin
+              </Label>
+            </div>
+            
+            {formData.isRecurring && (
+              <div className="space-y-2 mt-3">
+                <p className="text-sm text-muted-foreground">
+                  Jeden <span className="font-semibold text-foreground">{selectedWeekday}</span> wiederholen bis:
+                </p>
+                <Input
+                  id="recurringEndDate"
+                  type="date"
+                  value={formData.recurringEndDate}
+                  onChange={(e) => setFormData({ ...formData, recurringEndDate: e.target.value })}
+                  min={formData.date}
+                  required={formData.isRecurring}
+                  data-testid="input-recurring-end"
+                />
+                {recurringCount > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Es werden <span className="font-semibold text-primary">{recurringCount} Termine</span> erstellt.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {formData.type === "spiel" && (
           <>
