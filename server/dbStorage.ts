@@ -33,9 +33,12 @@ export interface IDbStorage {
   getCalendarEvent(id: string): Promise<CalendarEvent | undefined>;
   getCalendarEventByBfvId(bfvMatchId: string): Promise<CalendarEvent | undefined>;
   getCalendarEventByMatchKey(teamHome: string, teamAway: string, date: string): Promise<CalendarEvent | undefined>;
+  getCalendarEventsByRecurringGroup(recurringGroupId: string): Promise<CalendarEvent[]>;
   createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
   updateCalendarEvent(id: string, event: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
+  updateCalendarEventsByRecurringGroup(recurringGroupId: string, data: Partial<InsertCalendarEvent>): Promise<number>;
   deleteCalendarEvent(id: string): Promise<boolean>;
+  deleteCalendarEventsByRecurringGroup(recurringGroupId: string): Promise<number>;
   archiveCalendarEvent(id: string): Promise<boolean>;
   getBfvEventIds(): Promise<string[]>;
   getAllFieldMappings(): Promise<FieldMapping[]>;
@@ -72,6 +75,7 @@ function dbEventToCalendarEvent(dbEvent: CalendarEventDb): CalendarEvent {
     description: dbEvent.description ?? undefined,
     bfvImported: dbEvent.source === "BFV",
     bfvMatchId: dbEvent.externalId ?? undefined,
+    recurringGroupId: dbEvent.recurringGroupId ?? undefined,
     createdAt: dbEvent.createdAt.toISOString(),
     updatedAt: dbEvent.updatedAt.toISOString(),
   };
@@ -180,6 +184,7 @@ export class DbStorage implements IDbStorage {
     const dbEvent: InsertCalendarEventDb = {
       source: insertEvent.bfvImported ? "BFV" : "MANUAL",
       externalId: insertEvent.bfvMatchId || null,
+      recurringGroupId: insertEvent.recurringGroupId || null,
       type: insertEvent.type,
       title: insertEvent.title,
       team: insertEvent.team || null,
@@ -238,6 +243,55 @@ export class DbStorage implements IDbStorage {
       .delete(calendarEventsTable)
       .where(eq(calendarEventsTable.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async getCalendarEventsByRecurringGroup(recurringGroupId: string): Promise<CalendarEvent[]> {
+    const events = await db
+      .select()
+      .from(calendarEventsTable)
+      .where(
+        and(
+          eq(calendarEventsTable.recurringGroupId, recurringGroupId),
+          eq(calendarEventsTable.status, "ACTIVE")
+        )
+      )
+      .orderBy(calendarEventsTable.date);
+    return events.map(dbEventToCalendarEvent);
+  }
+
+  async updateCalendarEventsByRecurringGroup(recurringGroupId: string, data: Partial<InsertCalendarEvent>): Promise<number> {
+    const updateData: Partial<InsertCalendarEventDb> = {};
+    
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.type !== undefined) updateData.type = data.type;
+    if (data.team !== undefined) updateData.team = data.team || null;
+    if (data.field !== undefined) updateData.field = data.field || null;
+    if (data.startTime !== undefined) updateData.startTime = data.startTime;
+    if (data.endTime !== undefined) updateData.endTime = data.endTime;
+    if (data.isHomeGame !== undefined) updateData.isHomeGame = data.isHomeGame ?? null;
+    if (data.opponent !== undefined) updateData.opponent = data.opponent || null;
+    if (data.location !== undefined) updateData.location = data.location || null;
+    if (data.competition !== undefined) updateData.competition = data.competition || null;
+    if (data.description !== undefined) updateData.description = data.description || null;
+    // Note: We don't update date for recurring events - each has its own date
+
+    const result = await db
+      .update(calendarEventsTable)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(
+        and(
+          eq(calendarEventsTable.recurringGroupId, recurringGroupId),
+          eq(calendarEventsTable.status, "ACTIVE")
+        )
+      );
+    return result.rowCount ?? 0;
+  }
+
+  async deleteCalendarEventsByRecurringGroup(recurringGroupId: string): Promise<number> {
+    const result = await db
+      .delete(calendarEventsTable)
+      .where(eq(calendarEventsTable.recurringGroupId, recurringGroupId));
+    return result.rowCount ?? 0;
   }
 
   async archiveCalendarEvent(id: string): Promise<boolean> {

@@ -654,6 +654,40 @@ export async function registerRoutes(
     }
   });
 
+  // Get events by recurring group
+  app.get("/api/calendar/events/recurring/:groupId", requireAdmin, async (req, res) => {
+    try {
+      const events = await dbStorage.getCalendarEventsByRecurringGroup(req.params.groupId as string);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ error: "Wiederkehrende Termine konnten nicht geladen werden" });
+    }
+  });
+
+  // Update all events in recurring group
+  app.patch("/api/calendar/events/recurring/:groupId", requireAdmin, async (req, res) => {
+    try {
+      const data = insertCalendarEventSchema.partial().parse(req.body);
+      const count = await dbStorage.updateCalendarEventsByRecurringGroup(req.params.groupId as string, data);
+      res.json({ updated: count });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Wiederkehrende Termine konnten nicht aktualisiert werden" });
+    }
+  });
+
+  // Delete all events in recurring group
+  app.delete("/api/calendar/events/recurring/:groupId", requireAdmin, async (req, res) => {
+    try {
+      const count = await dbStorage.deleteCalendarEventsByRecurringGroup(req.params.groupId as string);
+      res.json({ deleted: count });
+    } catch (error) {
+      res.status(500).json({ error: "Wiederkehrende Termine konnten nicht gelöscht werden" });
+    }
+  });
+
   // Check for conflicts
   app.get("/api/calendar/conflicts", requireAdmin, async (req, res) => {
     try {

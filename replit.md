@@ -82,6 +82,7 @@ This application allows sports clubs to manage collective orders for team clothi
 - date, startTime, endTime
 - isHomeGame, opponent, location, competition
 - bfvImported, bfvMatchId
+- recurringGroupId (links recurring events together)
 
 ### BfvImportConfig
 - team, bfvTeamUrl, season
@@ -116,6 +117,9 @@ This application allows sports clubs to manage collective orders for team clothi
 - POST /api/calendar/events - Create event
 - PATCH /api/calendar/events/:id - Update event
 - DELETE /api/calendar/events/:id - Delete event
+- GET /api/calendar/events/recurring/:groupId - Get all events in recurring group
+- PATCH /api/calendar/events/recurring/:groupId - Update all events in recurring group
+- DELETE /api/calendar/events/recurring/:groupId - Delete all events in recurring group
 - GET /api/calendar/conflicts - Check for time conflicts
 - GET /api/calendar/export - Export calendar to CSV
 

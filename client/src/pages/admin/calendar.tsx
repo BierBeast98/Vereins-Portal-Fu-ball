@@ -18,7 +18,8 @@ import {
   Download, 
   AlertTriangle,
   Trash2,
-  ArrowLeft
+  ArrowLeft,
+  Repeat
 } from "lucide-react";
 import type { 
   CalendarEvent, 
@@ -168,6 +169,35 @@ function EventDialog({
     },
   });
 
+  const deleteRecurringGroupMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("DELETE", `/api/calendar/events/recurring/${event!.recurringGroupId}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      toast({ title: "Alle wiederkehrenden Termine gelöscht" });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Fehler beim Löschen", variant: "destructive" });
+    },
+  });
+
+  const updateRecurringGroupMutation = useMutation({
+    mutationFn: async (data: Partial<InsertCalendarEvent>) => {
+      return apiRequest("PATCH", `/api/calendar/events/recurring/${event!.recurringGroupId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      toast({ title: "Alle wiederkehrenden Termine aktualisiert" });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Fehler beim Aktualisieren", variant: "destructive" });
+    },
+  });
+
+
   // Generate all dates for recurring events
   const generateRecurringDates = (startDate: string, endDate: string): string[] => {
     const dates: string[] = [];
@@ -227,9 +257,10 @@ function EventDialog({
     if (event) {
       updateMutation.mutate(baseData);
     } else if (formData.isRecurring && formData.recurringEndDate) {
-      // Generate all recurring dates and create events
+      // Generate all recurring dates and create events with shared group ID
+      const recurringGroupId = crypto.randomUUID();
       const dates = generateRecurringDates(formData.date, formData.recurringEndDate);
-      const events = dates.map(date => ({ ...baseData, date }));
+      const events = dates.map(date => ({ ...baseData, date, recurringGroupId }));
       if (events.length > 0) {
         createRecurringMutation.mutate(events);
       }
@@ -238,7 +269,7 @@ function EventDialog({
     }
   };
 
-  const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || createRecurringMutation.isPending;
+  const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || createRecurringMutation.isPending || deleteRecurringGroupMutation.isPending || updateRecurringGroupMutation.isPending;
 
   // Calculate how many recurring events will be created
   const recurringCount = useMemo(() => {
@@ -457,26 +488,110 @@ function EventDialog({
         </div>
       </div>
 
+      {/* Show indicator for recurring events */}
+      {event?.recurringGroupId && (
+        <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
+          <Repeat className="h-4 w-4" />
+          <span>Teil einer wiederkehrenden Serie</span>
+        </div>
+      )}
+
       <div className="flex justify-between gap-2 pt-4">
         {event && (
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => deleteMutation.mutate()}
-            disabled={isPending}
-            data-testid="button-delete-event"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Löschen
-          </Button>
+          <div className="flex gap-2">
+            {event.recurringGroupId ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => deleteMutation.mutate()}
+                  disabled={isPending}
+                  data-testid="button-delete-event"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Nur diesen
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => deleteRecurringGroupMutation.mutate()}
+                  disabled={isPending}
+                  data-testid="button-delete-all-recurring"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Alle löschen
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => deleteMutation.mutate()}
+                disabled={isPending}
+                data-testid="button-delete-event"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Löschen
+              </Button>
+            )}
+          </div>
         )}
         <div className="flex gap-2 ml-auto">
           <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Abbrechen
           </Button>
-          <Button type="submit" disabled={isPending} data-testid="button-save-event">
-            {event ? "Speichern" : "Erstellen"}
-          </Button>
+          {event?.recurringGroupId ? (
+            <>
+              <Button 
+                type="button" 
+                variant="secondary"
+                onClick={() => updateMutation.mutate({
+                  title: formData.title,
+                  type: formData.type,
+                  team: formData.team,
+                  field: formData.field,
+                  date: formData.date,
+                  startTime: formData.startTime,
+                  endTime: formData.endTime,
+                  isHomeGame: formData.type === "spiel" ? formData.isHomeGame : undefined,
+                  opponent: formData.type === "spiel" ? formData.opponent : undefined,
+                  location: formData.location || undefined,
+                  competition: formData.competition || undefined,
+                  description: formData.description || undefined,
+                })}
+                disabled={isPending} 
+                data-testid="button-save-event"
+              >
+                Nur diesen
+              </Button>
+              <Button 
+                type="button"
+                onClick={() => updateRecurringGroupMutation.mutate({
+                  title: formData.title,
+                  type: formData.type,
+                  team: formData.team,
+                  field: formData.field,
+                  startTime: formData.startTime,
+                  endTime: formData.endTime,
+                  isHomeGame: formData.type === "spiel" ? formData.isHomeGame : undefined,
+                  opponent: formData.type === "spiel" ? formData.opponent : undefined,
+                  location: formData.location || undefined,
+                  competition: formData.competition || undefined,
+                  description: formData.description || undefined,
+                })}
+                disabled={isPending} 
+                data-testid="button-save-all-recurring"
+              >
+                Alle speichern
+              </Button>
+            </>
+          ) : (
+            <Button type="submit" disabled={isPending} data-testid="button-save-event">
+              {event ? "Speichern" : "Erstellen"}
+            </Button>
+          )}
         </div>
       </div>
     </form>

@@ -20,6 +20,7 @@ export const calendarEventsTable = pgTable("calendar_events", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   source: varchar("source", { length: 20 }).notNull().default("MANUAL"), // BFV or MANUAL
   externalId: varchar("external_id", { length: 255 }), // BFV-specific unique ID
+  recurringGroupId: varchar("recurring_group_id", { length: 36 }), // Links recurring events together
   type: varchar("type", { length: 50 }).notNull(), // spiel, training, turnier, etc.
   title: varchar("title", { length: 500 }).notNull(),
   team: varchar("team", { length: 50 }), // internal team key (herren, c-jugend, etc.)
@@ -47,6 +48,8 @@ export const calendarEventsTable = pgTable("calendar_events", {
   index("idx_team").on(table.team),
   // Index for source queries
   index("idx_source").on(table.source),
+  // Index for recurring group queries
+  index("idx_recurring_group").on(table.recurringGroupId),
 ]);
 
 // Field mappings table - configurable rules for field assignment
@@ -328,6 +331,7 @@ export interface CalendarEvent {
   description?: string;
   bfvImported: boolean;   // Was this imported from BFV?
   bfvMatchId?: string;    // BFV match ID for reference
+  recurringGroupId?: string; // Links recurring events together
   createdAt: string;
   updatedAt: string;
 }
@@ -347,6 +351,7 @@ export const insertCalendarEventSchema = z.object({
   description: z.string().optional(),
   bfvImported: z.boolean().default(false),
   bfvMatchId: z.string().optional(),
+  recurringGroupId: z.string().optional(),
 });
 
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
