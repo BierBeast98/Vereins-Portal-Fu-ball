@@ -1,4 +1,133 @@
 import { z } from "zod";
+import { pgTable, varchar, text, integer, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
+
+// ============================================
+// DATABASE TABLES (Drizzle ORM)
+// ============================================
+
+// Event source enum values
+export const EVENT_SOURCES = ["BFV", "MANUAL"] as const;
+export type EventSource = typeof EVENT_SOURCES[number];
+
+// Event status enum values
+export const EVENT_STATUSES = ["ACTIVE", "CANCELLED", "ARCHIVED"] as const;
+export type EventStatus = typeof EVENT_STATUSES[number];
+
+// Calendar Events table - persistent storage for all events
+export const calendarEventsTable = pgTable("calendar_events", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  source: varchar("source", { length: 20 }).notNull().default("MANUAL"), // BFV or MANUAL
+  externalId: varchar("external_id", { length: 255 }), // BFV-specific unique ID
+  type: varchar("type", { length: 50 }).notNull(), // spiel, training, turnier, etc.
+  title: varchar("title", { length: 500 }).notNull(),
+  team: varchar("team", { length: 50 }), // internal team key (herren, c-jugend, etc.)
+  teamHome: varchar("team_home", { length: 255 }), // Home team name
+  teamAway: varchar("team_away", { length: 255 }), // Away team name
+  field: varchar("field", { length: 20 }), // a-platz, b-platz
+  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
+  startTime: varchar("start_time", { length: 5 }).notNull(), // HH:MM
+  endTime: varchar("end_time", { length: 5 }).notNull(), // HH:MM
+  isHomeGame: boolean("is_home_game"),
+  opponent: varchar("opponent", { length: 255 }),
+  location: varchar("location", { length: 500 }),
+  competition: varchar("competition", { length: 255 }), // Liga, Pokal, etc.
+  description: text("description"),
+  rawPayload: jsonb("raw_payload"), // Original BFV data for reference
+  status: varchar("status", { length: 20 }).notNull().default("ACTIVE"), // ACTIVE, CANCELLED, ARCHIVED
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  // Unique constraint for BFV imports: source + externalId
+  unique("unique_bfv_external").on(table.source, table.externalId),
+  // Index for date range queries
+  index("idx_date").on(table.date),
+  // Index for team queries
+  index("idx_team").on(table.team),
+  // Index for source queries
+  index("idx_source").on(table.source),
+]);
+
+// Field mappings table - configurable rules for field assignment
+export const fieldMappingsTable = pgTable("field_mappings", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  team: varchar("team", { length: 50 }).notNull(),
+  eventType: varchar("event_type", { length: 50 }).notNull(),
+  defaultField: varchar("default_field", { length: 20 }).notNull(),
+}, (table) => [
+  unique("unique_team_event_type").on(table.team, table.eventType),
+]);
+
+// BFV Import configs table
+export const bfvImportConfigsTable = pgTable("bfv_import_configs", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  team: varchar("team", { length: 50 }).notNull(),
+  bfvTeamUrl: varchar("bfv_team_url", { length: 1000 }).notNull(),
+  season: varchar("season", { length: 20 }).notNull(),
+  lastImport: timestamp("last_import"),
+  active: boolean("active").notNull().default(true),
+});
+
+// BFV Import history table - track import runs
+export const bfvImportHistoryTable = pgTable("bfv_import_history", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  importedAt: timestamp("imported_at").defaultNow().notNull(),
+  createdCount: integer("created_count").notNull().default(0),
+  updatedCount: integer("updated_count").notNull().default(0),
+  unchangedCount: integer("unchanged_count").notNull().default(0),
+  archivedCount: integer("archived_count").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  fileName: varchar("file_name", { length: 255 }),
+  notes: text("notes"),
+});
+
+// Admin settings table
+export const adminSettingsTable = pgTable("admin_settings", {
+  key: varchar("key", { length: 100 }).primaryKey(),
+  value: text("value").notNull(),
+});
+
+// Drizzle insert schemas
+export const insertCalendarEventDbSchema = createInsertSchema(calendarEventsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertFieldMappingDbSchema = createInsertSchema(fieldMappingsTable).omit({
+  id: true,
+});
+
+export const insertBfvImportConfigDbSchema = createInsertSchema(bfvImportConfigsTable).omit({
+  id: true,
+  lastImport: true,
+});
+
+export const insertBfvImportHistoryDbSchema = createInsertSchema(bfvImportHistoryTable).omit({
+  id: true,
+  importedAt: true,
+});
+
+// Type exports from Drizzle tables
+export type CalendarEventDb = typeof calendarEventsTable.$inferSelect;
+export type InsertCalendarEventDb = z.infer<typeof insertCalendarEventDbSchema>;
+export type FieldMappingDb = typeof fieldMappingsTable.$inferSelect;
+export type InsertFieldMappingDb = z.infer<typeof insertFieldMappingDbSchema>;
+export type BfvImportConfigDb = typeof bfvImportConfigsTable.$inferSelect;
+export type InsertBfvImportConfigDb = z.infer<typeof insertBfvImportConfigDbSchema>;
+export type BfvImportHistoryDb = typeof bfvImportHistoryTable.$inferSelect;
+export type InsertBfvImportHistoryDb = z.infer<typeof insertBfvImportHistoryDbSchema>;
+
+// Import summary result
+export interface BfvImportSummary {
+  createdCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  archivedCount: number;
+  errorCount: number;
+  errors: string[];
+}
 
 // Available sizes for products
 export const AVAILABLE_SIZES = ["S", "M", "L", "XL", "XXL", "128", "140", "152", "164"] as const;

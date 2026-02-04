@@ -1,0 +1,84 @@
+Du bist Senior Full-Stack Entwickler in Replit. Implementiere eine dauerhafte, interne Speicherung für alle Termine (Spiele, Trainings, Events) im Admin-Planungsmodul des TSV-Portals, damit importierte BFV-Termine nach einem Refresh/Update NICHT verloren gehen.
+
+Ziele
+- BFV-Import schreibt nicht nur „temporär in den Kalender“, sondern persistiert in einer Datenbank.
+- Bei jedem neuen Import: Duplikate vermeiden, bestehende Termine aktualisieren, neue hinzufügen.
+- Wenn sich Datum/Uhrzeit/Platz/Ort ändert: bestehendes Event im Jahreskalender automatisch updaten.
+- Manuelle Termine (Training/Events) bleiben unangetastet.
+
+Technik / Vorgaben
+- Nutze eine DB (z.B. SQLite in Dev, Postgres optional) und ein ORM (z.B. Prisma/Drizzle/Sequelize – passend zum Projekt-Stack).
+- Erstelle ein sauberes Datenmodell und Migrationen.
+- Implementiere idempotenten Import: mehrfacher Import derselben BFV-Daten darf keine Duplikate erzeugen.
+
+Datenmodell (mindestens)
+Tabelle `events`:
+- id (UUID)
+- source (enum: "BFV" | "MANUAL")
+- external_id (string, nullable)  // BFV-spezifische eindeutige ID falls vorhanden
+- event_type (enum: "GAME" | "TRAINING" | "EVENT" | "MAINTENANCE")
+- title (string)
+- team_home (string, nullable)
+- team_away (string, nullable)
+- team_key (string, nullable) // interne Mannschaftskennung (z.B. "Herren1", "C-Jugend")
+- start_at (datetime)
+- end_at (datetime)
+- location_name (string, nullable)
+- place (enum: "A" | "B" | null)  // Platz A/B, aus Regeln ableitbar
+- is_home_game (boolean, nullable)
+- raw_payload (json, nullable) // Originaldaten vom BFV zur Nachvollziehbarkeit
+- status (enum: "ACTIVE" | "CANCELLED" | "ARCHIVED")
+- created_at, updated_at
+- unique constraints:
+  - (source, external_id) UNIQUE, wenn external_id vorhanden
+  - Fallback-Unique-Key (source, team_home, team_away, start_at_date) als zusätzlicher Duplikat-Schutz
+
+Import-Logik (idempotent)
+1) Beim BFV-Upload: parse alle Termine -> normalisiere Felder (Teams, Datum, Uhrzeit, Ort, Heim/Auswärts).
+2) Bestimme `match_key` für Duplikatprüfung:
+   - Primär: (source="BFV", external_id)
+   - Falls external_id fehlt: (team_home, team_away, datum) + optional Wettbewerb/Staffel wenn vorhanden
+3) Upsert-Verhalten:
+   - Wenn Event existiert (gleicher match_key):
+       - Vergleiche start_at/end_at/place/location_name (und ggf. title)
+       - Wenn Änderungen: UPDATE diese Felder + updated_at
+       - Wenn keine Änderungen: nichts ändern
+   - Wenn Event nicht existiert:
+       - INSERT neues Event
+4) Terminänderung erkennen:
+   - Identifiziere Spiel über team_home + team_away (+ ggf. Liga/Staffel) unabhängig vom Datum,
+     damit bei Datumsänderung das bestehende Spiel gefunden wird.
+   - Falls ein bestehendes Spiel mit gleichen Teams existiert aber anderem Datum/Uhrzeit:
+       - UPDATE start_at/end_at statt INSERT
+5) Platz-/Ortsänderung:
+   - Wenn BFV-Daten oder Platzregeln zu neuem `place` führen: UPDATE place.
+6) Löschlogik (optional, aber bevorzugt):
+   - Wenn ein früher importiertes BFV-Spiel im neuen Import nicht mehr vorkommt:
+       - setze status="ARCHIVED" statt Hard-Delete.
+
+Platzzuordnung (A/B)
+- Implementiere konfigurierbare Regeln (Mapping) z.B.:
+  - Herren Heimspiel -> A
+  - Jugend Heimspiel -> B
+- Wenn Regeln geändert werden, kann ein Recompute-Job alle BFV-Events neu zuordnen.
+
+API / UI Anpassungen
+- Kalenderansichten (Jahreskalender & Tages-/Wochenbelegung) laden Events aus der DB (nicht aus volatilem State).
+- BFV-Import-Endpoint gibt eine Summary zurück:
+  - created_count, updated_count, unchanged_count, archived_count, duplicates_skipped
+- Zeige im Admin-UI eine Import-Historie (optional):
+  - Zeitpunkt, Anzahl, Ergebnis.
+
+Qualität / Tests
+- Schreibe Unit-Tests für:
+  - Upsert/Idempotenz (2x Import -> keine Duplikate)
+  - Update bei Datumsänderung (gleiches Teams-Set -> Update statt Insert)
+  - Update bei Platzänderung
+- Logging: verständliche Logs pro Importlauf.
+
+Lieferumfang
+- Migrationen + DB Schema
+- Import-Service (sauber getrennt, z.B. `bfvImportService`)
+- Upsert/Matching-Algorithmus
+- Anpassung der Kalender-Datenquelle auf DB
+- Kurze Doku: wie Import funktioniert & wie man Regeln für Platzzuordnung pflegt
