@@ -105,7 +105,8 @@ function parseBfvPdf(text: string): ParsedPdfMatch[] {
   
   // Main pattern to find matches: TYPE LEAGUE DATE TIME TEAM1 - TEAM2
   // Match format: (FS|ME|HM|PO) (League) (DD.MM.YYYY) (HH:MM) (Team1) - (Team2)
-  const matchPattern = /\b(FS|ME|HM|PO)\s+([\w\s-]+?)\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s+([^-]+?)\s+-\s+([A-Za-zÄÖÜäöüß0-9\s()/.]+?)(?=\s+(?:Sportanlage|Sportplatz|Gemeindehalle|FS|ME|HM|PO|Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|Kursiv|Seite|\d{2}\.\d{2}\.\d{4})|\s*$)/gi;
+  // Lookahead terminators include: venue names, next match type, section headers, page markers, next date, or newline
+  const matchPattern = /\b(FS|ME|HM|PO)\s+([\w\s-]+?)\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s+([^-]+?)\s+-\s+([A-Za-zÄÖÜäöüß0-9\s()/.]+?)(?=\s+(?:Sportanlage|Sportplatz|Sportpark|Sporthalle|Stadion|Arena|Gemeindehalle|Turnhalle|Bezirkssportanlage|Rasenplatz|Kunstrasen|Hartplatz|TSV Greding|FS|ME|HM|PO|Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|E-Junioren|F-Junioren|G-Junioren|Alte Herren|Kursiv|Seite|Vereinsspielplan|Stand:|\d{2}\.\d{2}\.\d{4}|\n)|\s*$)/gi;
   
   let match;
   while ((match = matchPattern.exec(text)) !== null) {
