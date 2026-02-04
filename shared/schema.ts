@@ -404,3 +404,32 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   "platzsperrung": "Platzsperrung",
   "sonstiges": "Sonstiges"
 };
+
+// Team colors for calendar display - each team has a distinct color
+export const TEAM_COLORS: Record<Team, string> = {
+  "herren": "bg-blue-600",
+  "herren2": "bg-blue-400",
+  "damen": "bg-pink-500",
+  "a-jugend": "bg-emerald-600",
+  "b-jugend": "bg-emerald-500",
+  "c-jugend": "bg-teal-500",
+  "d-jugend": "bg-cyan-500",
+  "e-jugend": "bg-amber-500",
+  "f-jugend": "bg-orange-400",
+  "g-jugend": "bg-yellow-500",
+  "alte-herren": "bg-slate-500",
+};
+
+export const TEAM_BORDER_COLORS: Record<Team, string> = {
+  "herren": "border-blue-600",
+  "herren2": "border-blue-400",
+  "damen": "border-pink-500",
+  "a-jugend": "border-emerald-600",
+  "b-jugend": "border-emerald-500",
+  "c-jugend": "border-teal-500",
+  "d-jugend": "border-cyan-500",
+  "e-jugend": "border-amber-500",
+  "f-jugend": "border-orange-400",
+  "g-jugend": "border-yellow-500",
+  "alte-herren": "border-slate-500",
+};

@@ -258,12 +258,29 @@ export default function FieldsPage() {
                                 (c) => c.event1.id === event.id || c.event2.id === event.id
                               );
                               
+                              // Use team color if available, otherwise fall back to event type color
+                              const teamColors: Record<string, string> = {
+                                "herren": "bg-blue-600",
+                                "herren2": "bg-blue-400",
+                                "damen": "bg-pink-500",
+                                "a-jugend": "bg-emerald-600",
+                                "b-jugend": "bg-emerald-500",
+                                "c-jugend": "bg-teal-500",
+                                "d-jugend": "bg-cyan-500",
+                                "e-jugend": "bg-amber-500",
+                                "f-jugend": "bg-orange-400",
+                                "g-jugend": "bg-yellow-500",
+                                "alte-herren": "bg-slate-500",
+                              };
+                              const bgColor = event.team ? (teamColors[event.team] || EVENT_TYPE_COLORS[event.type]) : EVENT_TYPE_COLORS[event.type];
+                              const textColor = event.team === "g-jugend" ? "text-gray-900" : "text-white";
+                              
                               return (
                                 <div
                                   key={event.id}
                                   className={`
-                                    absolute left-0.5 right-0.5 rounded p-1 text-xs text-white overflow-hidden
-                                    ${EVENT_TYPE_COLORS[event.type]}
+                                    absolute left-0.5 right-0.5 rounded p-1 text-xs overflow-hidden
+                                    ${bgColor} ${textColor}
                                     ${hasConflict ? "ring-2 ring-destructive" : ""}
                                   `}
                                   style={{ top: `${top}px`, height: `${height}px` }}

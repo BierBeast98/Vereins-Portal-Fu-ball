@@ -492,8 +492,27 @@ export default function CalendarPage() {
   const today = formatDate(new Date());
   const todayDate = new Date();
 
-  const getEventColorClass = (type: EventType): string => {
-    const colors: Record<EventType, string> = {
+  const getEventColorClass = (event: CalendarEvent): string => {
+    // Use team color if team is specified, otherwise fall back to event type color
+    if (event.team) {
+      const teamColors: Record<string, string> = {
+        "herren": "bg-blue-600 text-white",
+        "herren2": "bg-blue-400 text-white",
+        "damen": "bg-pink-500 text-white",
+        "a-jugend": "bg-emerald-600 text-white",
+        "b-jugend": "bg-emerald-500 text-white",
+        "c-jugend": "bg-teal-500 text-white",
+        "d-jugend": "bg-cyan-500 text-white",
+        "e-jugend": "bg-amber-500 text-white",
+        "f-jugend": "bg-orange-400 text-white",
+        "g-jugend": "bg-yellow-500 text-gray-900",
+        "alte-herren": "bg-slate-500 text-white",
+      };
+      return teamColors[event.team] || "bg-gray-500 text-white";
+    }
+    
+    // Fall back to event type colors for events without a team
+    const typeColors: Record<EventType, string> = {
       spiel: "bg-blue-500 text-white",
       training: "bg-green-500 text-white",
       turnier: "bg-purple-500 text-white",
@@ -501,7 +520,7 @@ export default function CalendarPage() {
       platzsperrung: "bg-red-500 text-white",
       sonstiges: "bg-gray-500 text-white",
     };
-    return colors[type];
+    return typeColors[event.type];
   };
 
   const getTeamShortLabel = (team?: string): string => {
@@ -586,7 +605,7 @@ export default function CalendarPage() {
                   <span className="flex-1 ml-1 truncate">
                     {primaryEvent && (
                       <span 
-                        className={`text-xs px-1 rounded ${getEventColorClass(primaryEvent.type)} ${isAwayGame(primaryEvent) ? "italic border border-current" : ""}`}
+                        className={`text-xs px-1 rounded ${getEventColorClass(primaryEvent)} ${isAwayGame(primaryEvent) ? "italic border border-current" : ""}`}
                         onClick={(e) => handleEventClick(primaryEvent, e)}
                       >
                         {(() => {
@@ -707,7 +726,7 @@ export default function CalendarPage() {
                     {dayEvents.map((event) => (
                       <Badge
                         key={event.id}
-                        className={`${getEventColorClass(event.type)} cursor-pointer ${isAwayGame(event) ? "italic border border-current" : ""}`}
+                        className={`${getEventColorClass(event)} cursor-pointer ${isAwayGame(event) ? "italic border border-current" : ""}`}
                         onClick={(e) => handleEventClick(event, e)}
                         data-testid={`event-badge-${event.id}`}
                       >
@@ -767,7 +786,7 @@ export default function CalendarPage() {
               {dayEvents.map((event) => (
                 <div
                   key={event.id}
-                  className={`p-3 rounded-md cursor-pointer hover-elevate ${getEventColorClass(event.type)} ${isAwayGame(event) ? "border-2 border-dashed border-current" : ""}`}
+                  className={`p-3 rounded-md cursor-pointer hover-elevate ${getEventColorClass(event)} ${isAwayGame(event) ? "border-2 border-dashed border-current" : ""}`}
                   onClick={() => {
                     setEditingEvent(event);
                     setDialogOpen(true);
@@ -925,6 +944,38 @@ export default function CalendarPage() {
       {viewMode === "year" && renderYearView()}
       {viewMode === "month" && renderMonthView()}
       {viewMode === "day" && renderDayView()}
+      
+      {/* Team color legend */}
+      <div className="mt-6 pt-4 border-t">
+        <h4 className="text-sm font-medium mb-2 text-muted-foreground">Mannschaftsfarben</h4>
+        <div className="flex flex-wrap gap-2">
+          {TEAMS.map((team) => {
+            const teamColors: Record<string, string> = {
+              "herren": "bg-blue-600",
+              "herren2": "bg-blue-400",
+              "damen": "bg-pink-500",
+              "a-jugend": "bg-emerald-600",
+              "b-jugend": "bg-emerald-500",
+              "c-jugend": "bg-teal-500",
+              "d-jugend": "bg-cyan-500",
+              "e-jugend": "bg-amber-500",
+              "f-jugend": "bg-orange-400",
+              "g-jugend": "bg-yellow-500",
+              "alte-herren": "bg-slate-500",
+            };
+            const textColor = team === "g-jugend" ? "text-gray-900" : "text-white";
+            return (
+              <Badge 
+                key={team} 
+                className={`${teamColors[team]} ${textColor}`}
+                data-testid={`legend-team-${team}`}
+              >
+                {TEAM_LABELS[team]}
+              </Badge>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
