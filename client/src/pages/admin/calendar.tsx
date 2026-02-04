@@ -610,20 +610,22 @@ export default function CalendarPage() {
                   <span className={`w-5 text-right ${isToday ? "text-primary font-bold" : ""}`}>
                     {date.getDate()}
                   </span>
-                  <span className="flex-1 ml-1 truncate">
+                  <span className="flex-1 ml-1 flex items-center gap-0.5 min-w-0">
                     {primaryEvent && (
                       <span 
-                        className={`text-xs px-1 rounded ${getEventColorClass(primaryEvent)} ${isAwayGame(primaryEvent) ? "italic border border-current" : ""}`}
+                        className={`text-xs px-1 rounded truncate ${getEventColorClass(primaryEvent)} ${isAwayGame(primaryEvent) ? "italic border border-current" : ""}`}
                         onClick={(e) => handleEventClick(primaryEvent, e)}
                       >
                         {(() => {
                           const label = getEventDisplayLabel(primaryEvent);
-                          return label.length > 18 ? label.substring(0, 18) + "..." : label;
+                          return label.length > 15 ? label.substring(0, 15) + "…" : label;
                         })()}
                       </span>
                     )}
                     {dayEvents.length > 1 && (
-                      <span className="text-muted-foreground ml-1">+{dayEvents.length - 1}</span>
+                      <span className="flex-shrink-0 text-xs font-semibold bg-orange-500 text-white px-1 rounded">
+                        +{dayEvents.length - 1}
+                      </span>
                     )}
                   </span>
                   {showWeekNum && (
