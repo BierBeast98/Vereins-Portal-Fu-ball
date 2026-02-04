@@ -779,7 +779,7 @@ export async function registerRoutes(
     }
   });
 
-  // BFV Import - Fetch and import matches from BFV website
+  // BFV Import - Fetch and import matches from BFV website using idempotent import service
   app.post("/api/calendar/bfv-import/:configId", requireAdmin, async (req, res) => {
     try {
       const configId = req.params.configId as string;
@@ -791,8 +791,7 @@ export async function registerRoutes(
       }
 
       const bfvUrl = config.bfvTeamUrl;
-      const importedMatches: any[] = [];
-      const updatedMatches: any[] = [];
+      let bfvMatches: ParsedBfvMatch[] = [];
       let fetchFailed = false;
       let fetchError: string | null = null;
       
@@ -809,35 +808,21 @@ export async function registerRoutes(
             const html = await response.text();
             const matches = parseBfvMatches(html, config.team);
             
-            for (const match of matches) {
-              const existing = await dbStorage.getCalendarEventByBfvId(match.bfvMatchId);
-              
-              const eventData = {
-                title: match.isHome 
-                  ? `TSV Greding vs ${match.opponent}`
-                  : `${match.opponent} vs TSV Greding`,
-                type: "spiel" as const,
-                team: config.team,
-                field: match.isHome ? "a-platz" as const : undefined,
-                date: match.date,
-                startTime: match.time,
-                endTime: addHours(match.time, 2),
-                isHomeGame: match.isHome,
-                opponent: match.opponent,
-                location: match.location,
-                competition: match.competition,
-                bfvImported: true,
-                bfvMatchId: match.bfvMatchId,
-              };
-              
-              if (existing) {
-                await dbStorage.updateCalendarEvent(existing.id, eventData);
-                updatedMatches.push(eventData);
-              } else {
-                await dbStorage.createCalendarEvent(eventData);
-                importedMatches.push(eventData);
-              }
-            }
+            // Convert to ParsedBfvMatch format for idempotent import
+            bfvMatches = matches.map((match) => ({
+              externalId: match.bfvMatchId || `html-${match.date}-${match.time}-${match.opponent.substring(0, 10)}`.replace(/\s/g, ""),
+              date: match.date,
+              startTime: match.time,
+              endTime: addHours(match.time, 2),
+              teamHome: match.isHome ? "TSV Greding" : match.opponent,
+              teamAway: match.isHome ? match.opponent : "TSV Greding",
+              team: config.team,
+              isHomeGame: match.isHome,
+              opponent: match.opponent,
+              competition: match.competition || "",
+              location: match.location,
+              rawData: match,
+            }));
           } else {
             fetchFailed = true;
             fetchError = `BFV-Server nicht erreichbar (Status: ${response.status})`;
@@ -850,21 +835,28 @@ export async function registerRoutes(
       }
 
       // Only use sample data if explicitly requested or for demonstration purposes
-      if (useSampleData || (fetchFailed && importedMatches.length === 0)) {
+      if (useSampleData || (fetchFailed && bfvMatches.length === 0)) {
         const sampleMatches = generateSampleBfvMatches(config.team);
         
-        for (const match of sampleMatches) {
-          const existing = await dbStorage.getCalendarEventByBfvId(match.bfvMatchId!);
-          
-          if (existing) {
-            await dbStorage.updateCalendarEvent(existing.id, match);
-            updatedMatches.push(match);
-          } else {
-            await dbStorage.createCalendarEvent(match);
-            importedMatches.push(match);
-          }
-        }
+        // Convert sample matches to ParsedBfvMatch format
+        bfvMatches = sampleMatches.map((match) => ({
+          externalId: match.bfvMatchId || `sample-${match.date}-${match.startTime}-${match.opponent?.substring(0, 10) || ""}`.replace(/\s/g, ""),
+          date: match.date,
+          startTime: match.startTime,
+          endTime: match.endTime,
+          teamHome: match.isHomeGame ? "TSV Greding" : (match.opponent || ""),
+          teamAway: match.isHomeGame ? (match.opponent || "") : "TSV Greding",
+          team: config.team,
+          isHomeGame: match.isHomeGame || false,
+          opponent: match.opponent || "",
+          competition: match.competition || "",
+          location: match.location,
+          rawData: match,
+        }));
       }
+
+      // Use idempotent import service
+      const summary = await importBfvMatches(bfvMatches, `bfv-html-${config.team}`);
 
       await dbStorage.updateBfvImportConfig(configId, {
         lastImport: new Date().toISOString(),
@@ -872,11 +864,12 @@ export async function registerRoutes(
 
       res.json({ 
         success: true, 
-        imported: importedMatches.length,
-        updated: updatedMatches.length,
+        imported: summary.createdCount,
+        updated: summary.updatedCount,
+        unchanged: summary.unchangedCount,
+        archived: summary.archivedCount,
         usedSampleData: useSampleData || fetchFailed,
         fetchError: fetchError,
-        matches: importedMatches 
       });
     } catch (error) {
       console.error("BFV import error:", error);
