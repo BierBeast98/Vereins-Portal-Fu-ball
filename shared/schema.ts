@@ -159,7 +159,7 @@ export const insertProductSchema = z.object({
   name: z.string().min(1, "Produktname ist erforderlich"),
   category: z.string().min(1, "Kategorie ist erforderlich"),
   basePrice: z.number().min(0, "Preis muss positiv sein"),
-  imageUrl: z.string().min(1, "Bild ist erforderlich"),
+  imageUrl: z.string().default(""),
   additionalImages: z.array(z.string()).default([]),
   active: z.boolean().default(true),
   shortDescription: z.string().optional(),

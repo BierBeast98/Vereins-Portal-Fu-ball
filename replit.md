@@ -15,6 +15,7 @@ This application allows sports clubs to manage collective orders for team clothi
 - **Public Order Form**: Members can place orders for active campaigns
 - **Excel Export**: Export orders in CSV format for the sports retailer
 - **Email Confirmation**: Order confirmations via Resend (requires valid API key)
+- **Image Upload**: Server-side image processing with sharp (resize to thumbnail/medium/original, WebP conversion), stored in Replit Object Storage
 
 **Fußball-Planung (Football Planning)**
 - **Jahreskalender**: 12-month calendar view with color-coded events

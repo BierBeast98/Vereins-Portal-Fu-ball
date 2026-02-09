@@ -1,4 +1,5 @@
-import { useState } from "react";
+import type { ChangeEvent } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -40,8 +41,217 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Package, Euro, ImageIcon, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, Euro, ImageIcon, Loader2, Upload, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+
+interface ImageUploadResult {
+  thumbnail: string;
+  medium: string;
+  original: string;
+}
+
+function ImageUploader({
+  value,
+  onChange,
+  additionalImages,
+  onAdditionalChange,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  additionalImages: string[];
+  onAdditionalChange: (urls: string[]) => void;
+}) {
+  const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingAdditional, setIsUploadingAdditional] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const additionalInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  const uploadImage = useCallback(async (file: File): Promise<ImageUploadResult | null> => {
+    const formData = new FormData();
+    formData.append("image", file);
+
+    try {
+      const response = await fetch("/api/images/upload", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || "Upload fehlgeschlagen");
+      }
+
+      return await response.json();
+    } catch (error) {
+      toast({
+        title: "Upload-Fehler",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+      return null;
+    }
+  }, [toast]);
+
+  const handleMainUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const result = await uploadImage(file);
+    if (result) {
+      onChange(result.medium);
+    }
+    setIsUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleAdditionalUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingAdditional(true);
+    const newUrls: string[] = [];
+
+    for (const file of Array.from(files)) {
+      const result = await uploadImage(file);
+      if (result) {
+        newUrls.push(result.medium);
+      }
+    }
+
+    if (newUrls.length > 0) {
+      onAdditionalChange([...additionalImages, ...newUrls]);
+    }
+    setIsUploadingAdditional(false);
+    if (additionalInputRef.current) additionalInputRef.current.value = "";
+  };
+
+  const removeAdditionalImage = (index: number) => {
+    onAdditionalChange(additionalImages.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+          Hauptbild
+        </label>
+        <div className="mt-2">
+          {value ? (
+            <div className="relative w-full max-w-xs rounded-md overflow-visible border bg-muted">
+              <img
+                src={value}
+                alt="Produktbild"
+                className="w-full aspect-square object-contain p-2"
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="absolute top-1 right-1"
+                onClick={() => onChange("")}
+                data-testid="button-remove-main-image"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div
+              className="relative w-full max-w-xs aspect-square rounded-md border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer bg-muted/50"
+              onClick={() => fileInputRef.current?.click()}
+              data-testid="dropzone-main-image"
+            >
+              {isUploading ? (
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <Upload className="h-8 w-8 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground text-center px-4">
+                    Klicken zum Hochladen (JPG, PNG, WebP, HEIC)
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/tiff,image/bmp"
+            className="hidden"
+            onChange={handleMainUpload}
+            data-testid="input-file-main-image"
+          />
+          {!value && (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              data-testid="button-upload-main-image"
+            >
+              {isUploading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4 mr-2" />
+              )}
+              Bild hochladen
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium leading-none">
+          Weitere Bilder
+        </label>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {additionalImages.map((url, index) => (
+            <div key={index} className="relative w-20 h-20 rounded-md overflow-visible border bg-muted">
+              <img
+                src={url}
+                alt={`Bild ${index + 1}`}
+                className="w-full h-full object-contain p-1"
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="absolute -top-1.5 -right-1.5 h-5 w-5"
+                onClick={() => removeAdditionalImage(index)}
+                data-testid={`button-remove-additional-${index}`}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+          <div
+            className="w-20 h-20 rounded-md border-2 border-dashed flex items-center justify-center cursor-pointer bg-muted/50"
+            onClick={() => additionalInputRef.current?.click()}
+            data-testid="dropzone-additional-images"
+          >
+            {isUploadingAdditional ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : (
+              <Plus className="h-5 w-5 text-muted-foreground" />
+            )}
+          </div>
+        </div>
+        <input
+          ref={additionalInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/tiff,image/bmp"
+          multiple
+          className="hidden"
+          onChange={handleAdditionalUpload}
+          data-testid="input-file-additional-images"
+        />
+      </div>
+    </div>
+  );
+}
 
 export default function ProductsPage() {
   const { toast } = useToast();
@@ -306,25 +516,11 @@ export default function ProductsPage() {
                   />
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name="imageUrl"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Bild-URL *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="https://beispiel.de/bild.jpg"
-                          {...field}
-                          data-testid="input-product-image"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Link zum Produktbild (unterstützt JPG, PNG, WebP)
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                <ImageUploader
+                  value={form.watch("imageUrl")}
+                  onChange={(url) => form.setValue("imageUrl", url)}
+                  additionalImages={form.watch("additionalImages") || []}
+                  onAdditionalChange={(urls) => form.setValue("additionalImages", urls)}
                 />
 
                 <FormField
@@ -546,8 +742,8 @@ export default function ProductsPage() {
       ) : products && products.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {products.map((product) => (
-            <Card key={product.id} className="overflow-hidden">
-              <div className="aspect-square relative bg-muted">
+            <Card key={product.id} className="overflow-visible">
+              <div className="aspect-square relative bg-muted rounded-t-md overflow-hidden">
                 {product.imageUrl ? (
                   <img
                     src={product.imageUrl}
@@ -556,6 +752,7 @@ export default function ProductsPage() {
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = "none";
                     }}
+                    data-testid={`img-product-${product.id}`}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
@@ -585,7 +782,7 @@ export default function ProductsPage() {
                   {product.basePrice.toFixed(2)}
                   {product.initialsEnabled && (
                     <span className="text-sm font-normal text-muted-foreground">
-                      + {product.initialsPrice.toFixed(2)}€ für {product.initialsLabel}
+                      + {product.initialsPrice.toFixed(2)} für {product.initialsLabel}
                     </span>
                   )}
                 </div>

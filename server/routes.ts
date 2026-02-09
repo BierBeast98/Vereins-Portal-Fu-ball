@@ -15,8 +15,9 @@ import { z } from "zod";
 import { sendOrderConfirmation } from "./email";
 import type { Team, InsertCalendarEvent, Field } from "@shared/schema";
 import multer from "multer";
+import { processAndUploadImage, serveImage } from "./imageUpload";
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 // Helper to add hours to a time string
 function addHours(time: string, hours: number): string {
@@ -1030,6 +1031,38 @@ export async function registerRoutes(
     } catch (error) {
       console.error("PDF import error:", error);
       res.status(500).json({ error: "PDF-Import fehlgeschlagen: " + (error as Error).message });
+    }
+  });
+
+  // ============================================
+  // IMAGE UPLOAD & SERVING
+  // ============================================
+
+  app.post("/api/images/upload", requireAdmin, upload.single("image"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Keine Bilddatei hochgeladen" });
+      }
+
+      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/tiff", "image/bmp"];
+      if (!allowedTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({ error: "Ungültiges Bildformat. Erlaubt: JPG, PNG, WebP, GIF, HEIC, TIFF, BMP" });
+      }
+
+      const result = await processAndUploadImage(req.file.buffer, req.file.originalname);
+      res.json(result);
+    } catch (error) {
+      console.error("Image upload error:", error);
+      res.status(500).json({ error: "Bildupload fehlgeschlagen: " + (error as Error).message });
+    }
+  });
+
+  app.get("/api/images/:filename", async (req, res) => {
+    try {
+      await serveImage(req.params.filename, res);
+    } catch (error) {
+      console.error("Image serve error:", error);
+      res.status(500).json({ error: "Bild konnte nicht geladen werden" });
     }
   });
 
