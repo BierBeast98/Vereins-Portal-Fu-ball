@@ -1,0 +1,69 @@
+Du bist Senior Full-Stack Developer in Replit und arbeitest am TSV-Bestellportal (Kleidung). Implementiere eine robuste Upload-Funktion, damit Admins/Redakteure zu einem Artikel/Bildslot Dateien in möglichst allen gängigen Bildformaten hochladen können, um diese Bilder im Bestellportal anzuzeigen.
+
+Ziele
+- Im Admin-Bereich kann man Bilder für Artikel/Produkte hochladen und verwalten (Upload, Vorschau, Ersetzen, Löschen).
+- Akzeptiere alle gängigen Bildformate: JPG/JPEG, PNG, WEBP, GIF, SVG (optional), HEIC/HEIF (wichtig für iPhone), BMP, TIFF.
+- Nach Upload: Speichere das Bild dauerhaft (Storage) + in DB referenzieren, sodass es nach Refresh/Deploy erhalten bleibt.
+- Stelle sicher, dass die Bilder im Frontend sauber skaliert und performant geladen werden (Thumbnails + Original).
+
+Technische Anforderungen
+1) Upload UI
+- Button „Bild hochladen“ pro Produkt (oder pro Bildslot)
+- Drag & Drop + Dateiauswahl
+- Vorschau direkt nach Auswahl
+- Fortschrittsanzeige, Fehlertexte
+- Option: „Als Hauptbild setzen“ (wenn mehrere Bilder möglich)
+
+2) Backend / Storage
+- Implementiere Upload-Endpoint (multipart/form-data).
+- Speichere Dateien entweder:
+  - a) lokal in /uploads (Dev) + persistenter Replit Storage falls verfügbar, ODER
+  - b) S3 kompatibler Storage (empfohlen, z.B. Cloudflare R2, AWS S3) – Konfiguration über ENV.
+- In DB speichern:
+  - product_id
+  - file_url / storage_key
+  - original_filename
+  - mime_type
+  - width/height (falls ermittelbar)
+  - created_at
+
+3) Bildverarbeitung / Kompatibilität
+- Konvertiere beim Upload automatisch problematische Formate:
+  - HEIC/HEIF -> JPEG oder WEBP
+  - TIFF/BMP -> JPEG oder WEBP
+- Erzeuge automatisch Derivate:
+  - thumbnail (z.B. 300px)
+  - medium (z.B. 900px)
+  - optional original
+- Verwende serverseitig eine Image-Library passend zum Stack (z.B. sharp; für HEIC ggf. heic-convert oder sharp mit heif support).
+- SVG nur zulassen, wenn sicher (sanitizen) oder optional deaktivieren.
+
+4) Validierung & Sicherheit
+- Max File Size z.B. 10–20 MB (konfigurierbar)
+- Whitelist/Allowlist der Formate über MIME + File-Signature (nicht nur Dateiendung)
+- Rate limiting (optional)
+- Nur Admins dürfen uploaden/löschen
+- Verhindere XSS über SVG oder Dateinamen (sanitize)
+- Fehlerfälle sauber behandeln (Format nicht unterstützt, zu groß, Upload abgebrochen)
+
+5) Frontend Anzeige
+- Produktkarten und Detailseiten sollen:
+  - Thumbnail nutzen (schnell)
+  - auf Klick Original/Medium anzeigen (Lightbox optional)
+- Responsive Images (srcset) wenn möglich
+- Fallback-Bild, wenn keins vorhanden
+
+Akzeptanzkriterien
+- Admin kann Bilder in PNG/JPG/WEBP/GIF/HEIC hochladen.
+- HEIC Upload wird automatisch in WEBP/JPEG konvertiert und korrekt angezeigt.
+- Mehrfacher Upload erzeugt keine kaputten Links; Ersetzen eines Bildes aktualisiert DB + Anzeige.
+- Nach Neustart/Reload sind Bilder weiterhin verfügbar (persistente Speicherung).
+- Frontend lädt schnell (Thumbnails), keine riesigen Originale in Listenansichten.
+
+Lieferumfang
+- DB Schema/Migration für product_images
+- Upload API Route + Auth Guard
+- Image Processing Pipeline (Conversion + Resize)
+- Admin UI Komponenten (Upload, Preview, Delete, Set Primary)
+- Anpassung Frontend, um neue Bildquellen zu nutzen
+- Kurze README: ENV Variablen (Storage), maximale Größe, unterstützte Formate
