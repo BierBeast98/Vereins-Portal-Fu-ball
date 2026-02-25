@@ -1,6 +1,34 @@
-node_modules
-dist
-.DS_Store
-server/public
+# Abhängigkeiten
+node_modules/
+
+# Build-Ausgaben
+dist/
+build/
+server/public/
+
+# Umgebungsvariablen & Secrets
+.env
+.env.local
+.env.*.local
+
+# Replit-spezifische Dateien
+.replit
+.upm/
+.cache/
+.local/
 vite.config.ts.*
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporäre Dateien
 *.tar.gz
+tmp/
+
+# TypeScript-Cache
+*.tsbuildinfo
