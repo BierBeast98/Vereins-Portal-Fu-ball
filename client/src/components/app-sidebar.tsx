@@ -82,14 +82,14 @@ export function AppSidebar() {
             <Package className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-base font-semibold">TSV Bestellportal</h2>
+            <h2 className="text-base font-semibold">Vereinsportal TSV Greding</h2>
             <p className="text-xs text-muted-foreground">Admin-Bereich</p>
           </div>
         </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Bestellportal</SidebarGroupLabel>
+          <SidebarGroupLabel>Bestellungen</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {shopItems.map((item) => (
@@ -176,7 +176,7 @@ export function AppSidebar() {
           Abmelden
         </Button>
         <div className="text-xs text-muted-foreground">
-          TSV Bestellportal v1.0
+          Vereinsportal TSV Greding v1.0
         </div>
       </SidebarFooter>
     </Sidebar>

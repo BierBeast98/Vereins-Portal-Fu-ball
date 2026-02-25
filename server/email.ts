@@ -32,7 +32,7 @@ export async function sendOrderConfirmation(order: Order): Promise<boolean> {
     </head>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">TSV Bestellportal</h1>
+        <h1 style="color: white; margin: 0; font-size: 24px;">Vereinsportal TSV Greding</h1>
         <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0;">Bestellbestätigung</p>
       </div>
       
@@ -95,7 +95,7 @@ export async function sendOrderConfirmation(order: Order): Promise<boolean> {
 
   try {
     const result = await resend.emails.send({
-      from: "TSV Bestellportal <bestellung@resend.dev>",
+      from: "Vereinsportal TSV Greding <bestellung@resend.dev>",
       to: order.email,
       subject: `Bestellbestätigung - ${order.campaignName}`,
       html: emailHtml,

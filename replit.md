@@ -1,4 +1,4 @@
-# TSV Bestellportal
+# Vereinsportal TSV Greding
 
 A group ordering portal for sports club merchandise and training apparel, plus a comprehensive football department planning module. Built to replace Google Forms with a flexible admin-managed system.
 
