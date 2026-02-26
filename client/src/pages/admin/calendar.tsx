@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   Trash2,
   ArrowLeft,
-  Repeat
+  Repeat,
+  RefreshCw
 } from "lucide-react";
 import type { 
   CalendarEvent, 
@@ -598,6 +599,47 @@ function EventDialog({
   );
 }
 
+function BfvImportButton() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: status } = useQuery<{ running: boolean; bfvUrlConfigured: boolean }>({
+    queryKey: ["/api/calendar/bfv-import/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/bfv-import/status", { credentials: "include" });
+      if (!res.ok) throw new Error("Status fehlgeschlagen");
+      return res.json();
+    },
+  });
+  const importMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/calendar/bfv-import/run", {}),
+    onSuccess: (data: { ok?: boolean; message?: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/bfv-import/runs"] });
+      if (data.ok) toast({ title: "BFV-Import abgeschlossen", description: data.message });
+      else toast({ title: "BFV-Import fehlgeschlagen", description: data.message, variant: "destructive" });
+    },
+    onError: (err: Error) => toast({ title: "BFV-Import fehlgeschlagen", description: err.message, variant: "destructive" }),
+  });
+  const running = status?.running ?? false;
+  const pending = importMutation.isPending;
+  const disabled = !status?.bfvUrlConfigured || running || pending;
+  return (
+    <Button
+      variant="outline"
+      onClick={() => importMutation.mutate()}
+      disabled={disabled}
+      data-testid="button-bfv-import-now"
+    >
+      {pending || running ? (
+        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <RefreshCw className="h-4 w-4 mr-2" />
+      )}
+      BFV jetzt importieren
+    </Button>
+  );
+}
+
 type ViewMode = "year" | "month" | "day";
 
 export default function CalendarPage() {
@@ -1092,6 +1134,8 @@ export default function CalendarPage() {
             <Download className="h-4 w-4 mr-2" />
             CSV Export
           </Button>
+
+          <BfvImportButton />
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>

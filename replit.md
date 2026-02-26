@@ -186,8 +186,13 @@ This application allows sports clubs to manage collective orders for team clothi
 
 ## BFV Integration
 
-The BFV-Import feature allows importing match schedules from the Bavarian Football Association (BFV) website. Configured team URLs for TSV Greding:
-- Herren: https://www.bfv.de/mannschaften/tsv-greding/...
-- Herren II: https://www.bfv.de/mannschaften/tsv-greding-ii/...
+Spiele werden von der BFV-Vereinsseite (oder einem ICS-Link) importiert: idempotent (Upsert nach source_id / stable_key), Auto-Update alle 24h, manueller Button „Jetzt importieren“. Nur Spiele (keine Trainings). Platz A/B aus Spielort-Text („Platz 1“ → A-Platz, „Platz 2“ → B-Platz), sonst keine Platzblockierung. Verschobene Spiele werden erkannt und als Hinweis gemeldet.
 
-Home games are automatically assigned to A-Platz.
+### Environment (BFV)
+
+| Variable | Beschreibung | Default |
+|----------|--------------|--------|
+| `BFV_URL` | Spielplan-URL (Vereinsseite oder ICS) | – |
+| `IMPORT_INTERVAL_HOURS` | Intervall für Auto-Import (Stunden) | 24 |
+| `DEFAULT_MATCH_DURATION_MINUTES` | Spieldauer in Minuten | 120 |
+| `TIMEZONE` | Zeitzone (z. B. Europe/Berlin) | Europe/Berlin |

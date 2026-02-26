@@ -12,8 +12,6 @@ import {
   type InsertCalendarEvent,
   type FieldMapping,
   type InsertFieldMapping,
-  type BfvImportConfig,
-  type InsertBfvImportConfig,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -53,7 +51,6 @@ export interface IStorage {
   getCalendarEventsByDateRange(startDate: string, endDate: string): Promise<CalendarEvent[]>;
   getCalendarEventsByField(field: string, startDate: string, endDate: string): Promise<CalendarEvent[]>;
   getCalendarEvent(id: string): Promise<CalendarEvent | undefined>;
-  getCalendarEventByBfvId(bfvMatchId: string): Promise<CalendarEvent | undefined>;
   createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
   updateCalendarEvent(id: string, event: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
   deleteCalendarEvent(id: string): Promise<boolean>;
@@ -63,13 +60,6 @@ export interface IStorage {
   createFieldMapping(mapping: InsertFieldMapping): Promise<FieldMapping>;
   updateFieldMapping(id: string, mapping: Partial<InsertFieldMapping>): Promise<FieldMapping | undefined>;
   deleteFieldMapping(id: string): Promise<boolean>;
-
-  // BFV Import Config
-  getAllBfvImportConfigs(): Promise<BfvImportConfig[]>;
-  getBfvImportConfig(id: string): Promise<BfvImportConfig | undefined>;
-  createBfvImportConfig(config: InsertBfvImportConfig): Promise<BfvImportConfig>;
-  updateBfvImportConfig(id: string, config: Partial<InsertBfvImportConfig & { lastImport?: string }>): Promise<BfvImportConfig | undefined>;
-  deleteBfvImportConfig(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -79,7 +69,6 @@ export class MemStorage implements IStorage {
   private orders: Map<string, Order>;
   private calendarEvents: Map<string, CalendarEvent>;
   private fieldMappings: Map<string, FieldMapping>;
-  private bfvImportConfigs: Map<string, BfvImportConfig>;
   private adminPassword: string;
 
   constructor() {
@@ -89,7 +78,6 @@ export class MemStorage implements IStorage {
     this.orders = new Map();
     this.calendarEvents = new Map();
     this.fieldMappings = new Map();
-    this.bfvImportConfigs = new Map();
     this.adminPassword = "12345"; // Default admin password
 
     // Add sample products for demonstration
@@ -405,15 +393,6 @@ export class MemStorage implements IStorage {
     return this.calendarEvents.get(id);
   }
 
-  async getCalendarEventByBfvId(bfvMatchId: string): Promise<CalendarEvent | undefined> {
-    for (const event of this.calendarEvents.values()) {
-      if (event.bfvMatchId === bfvMatchId) {
-        return event;
-      }
-    }
-    return undefined;
-  }
-
   async createCalendarEvent(insertEvent: InsertCalendarEvent): Promise<CalendarEvent> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -465,34 +444,6 @@ export class MemStorage implements IStorage {
 
   async deleteFieldMapping(id: string): Promise<boolean> {
     return this.fieldMappings.delete(id);
-  }
-
-  // BFV Import Config
-  async getAllBfvImportConfigs(): Promise<BfvImportConfig[]> {
-    return Array.from(this.bfvImportConfigs.values());
-  }
-
-  async getBfvImportConfig(id: string): Promise<BfvImportConfig | undefined> {
-    return this.bfvImportConfigs.get(id);
-  }
-
-  async createBfvImportConfig(insertConfig: InsertBfvImportConfig): Promise<BfvImportConfig> {
-    const id = randomUUID();
-    const config: BfvImportConfig = { ...insertConfig, id };
-    this.bfvImportConfigs.set(id, config);
-    return config;
-  }
-
-  async updateBfvImportConfig(id: string, data: Partial<InsertBfvImportConfig & { lastImport?: string }>): Promise<BfvImportConfig | undefined> {
-    const existing = this.bfvImportConfigs.get(id);
-    if (!existing) return undefined;
-    const updated: BfvImportConfig = { ...existing, ...data };
-    this.bfvImportConfigs.set(id, updated);
-    return updated;
-  }
-
-  async deleteBfvImportConfig(id: string): Promise<boolean> {
-    return this.bfvImportConfigs.delete(id);
   }
 }
 

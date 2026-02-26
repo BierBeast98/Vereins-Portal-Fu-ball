@@ -37,18 +37,18 @@ export const calendarEventsTable = pgTable("calendar_events", {
   description: text("description"),
   rawPayload: jsonb("raw_payload"), // Original BFV data for reference
   status: varchar("status", { length: 20 }).notNull().default("ACTIVE"), // ACTIVE, CANCELLED, ARCHIVED
+  stableKey: varchar("stable_key", { length: 64 }), // Deterministic key for idempotent matching when no externalId
+  lastSeenAt: timestamp("last_seen_at"), // Last time this event was seen in BFV feed
+  archivedAt: timestamp("archived_at"), // When status was set to ARCHIVED
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
-  // Unique constraint for BFV imports: source + externalId
+  // Unique constraint for BFV imports: source + externalId (when set)
   unique("unique_bfv_external").on(table.source, table.externalId),
-  // Index for date range queries
+  index("idx_bfv_stable_key").on(table.source, table.stableKey),
   index("idx_date").on(table.date),
-  // Index for team queries
   index("idx_team").on(table.team),
-  // Index for source queries
   index("idx_source").on(table.source),
-  // Index for recurring group queries
   index("idx_recurring_group").on(table.recurringGroupId),
 ]);
 
@@ -62,27 +62,27 @@ export const fieldMappingsTable = pgTable("field_mappings", {
   unique("unique_team_event_type").on(table.team, table.eventType),
 ]);
 
-// BFV Import configs table
-export const bfvImportConfigsTable = pgTable("bfv_import_configs", {
+// BFV import runs (per-run summary)
+export const importRunsTable = pgTable("import_runs", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
-  team: varchar("team", { length: 50 }).notNull(),
-  bfvTeamUrl: varchar("bfv_team_url", { length: 1000 }).notNull(),
-  season: varchar("season", { length: 20 }).notNull(),
-  lastImport: timestamp("last_import"),
-  active: boolean("active").notNull().default(true),
-});
-
-// BFV Import history table - track import runs
-export const bfvImportHistoryTable = pgTable("bfv_import_history", {
-  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
-  importedAt: timestamp("imported_at").defaultNow().notNull(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+  source: varchar("source", { length: 20 }).notNull().default("bfv"),
   createdCount: integer("created_count").notNull().default(0),
   updatedCount: integer("updated_count").notNull().default(0),
-  unchangedCount: integer("unchanged_count").notNull().default(0),
   archivedCount: integer("archived_count").notNull().default(0),
-  errorCount: integer("error_count").notNull().default(0),
-  fileName: varchar("file_name", { length: 255 }),
-  notes: text("notes"),
+  errors: jsonb("errors"), // string[]
+  warnings: jsonb("warnings"), // string[] or object[]
+});
+
+// BFV import warnings / notifications (reschedule hints etc.)
+export const importWarningsTable = pgTable("import_warnings", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  importRunId: varchar("import_run_id", { length: 36 }).notNull(),
+  type: varchar("type", { length: 50 }).notNull(), // e.g. "reschedule", "ambiguous_reschedule"
+  message: text("message").notNull(),
+  eventRefs: jsonb("event_refs"), // [{ eventId, oldDate?, newDate? }]
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Admin settings table
@@ -102,35 +102,13 @@ export const insertFieldMappingDbSchema = createInsertSchema(fieldMappingsTable)
   id: true,
 });
 
-export const insertBfvImportConfigDbSchema = createInsertSchema(bfvImportConfigsTable).omit({
-  id: true,
-  lastImport: true,
-});
-
-export const insertBfvImportHistoryDbSchema = createInsertSchema(bfvImportHistoryTable).omit({
-  id: true,
-  importedAt: true,
-});
-
 // Type exports from Drizzle tables
 export type CalendarEventDb = typeof calendarEventsTable.$inferSelect;
 export type InsertCalendarEventDb = z.infer<typeof insertCalendarEventDbSchema>;
 export type FieldMappingDb = typeof fieldMappingsTable.$inferSelect;
 export type InsertFieldMappingDb = z.infer<typeof insertFieldMappingDbSchema>;
-export type BfvImportConfigDb = typeof bfvImportConfigsTable.$inferSelect;
-export type InsertBfvImportConfigDb = z.infer<typeof insertBfvImportConfigDbSchema>;
-export type BfvImportHistoryDb = typeof bfvImportHistoryTable.$inferSelect;
-export type InsertBfvImportHistoryDb = z.infer<typeof insertBfvImportHistoryDbSchema>;
-
-// Import summary result
-export interface BfvImportSummary {
-  createdCount: number;
-  updatedCount: number;
-  unchangedCount: number;
-  archivedCount: number;
-  errorCount: number;
-  errors: string[];
-}
+export type ImportRunDb = typeof importRunsTable.$inferSelect;
+export type ImportWarningDb = typeof importWarningsTable.$inferSelect;
 
 // Available sizes for products
 export const AVAILABLE_SIZES = ["S", "M", "L", "XL", "XXL", "128", "140", "152", "164"] as const;
@@ -329,9 +307,12 @@ export interface CalendarEvent {
   location?: string;      // Location (for away games)
   competition?: string;   // Liga, Pokal, etc.
   description?: string;
-  bfvImported: boolean;   // Was this imported from BFV?
-  bfvMatchId?: string;    // BFV match ID for reference
-  recurringGroupId?: string; // Links recurring events together
+  bfvImported: boolean;
+  bfvMatchId?: string;
+  stableKey?: string;
+  lastSeenAt?: string;
+  archivedAt?: string;
+  recurringGroupId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -351,6 +332,9 @@ export const insertCalendarEventSchema = z.object({
   description: z.string().optional(),
   bfvImported: z.boolean().default(false),
   bfvMatchId: z.string().optional(),
+  stableKey: z.string().optional(),
+  lastSeenAt: z.string().datetime().optional(),
+  archivedAt: z.string().datetime().optional(),
   recurringGroupId: z.string().optional(),
 });
 
@@ -371,25 +355,6 @@ export const insertFieldMappingSchema = z.object({
 });
 
 export type InsertFieldMapping = z.infer<typeof insertFieldMappingSchema>;
-
-// BFV Import configuration
-export interface BfvImportConfig {
-  id: string;
-  team: Team;
-  bfvTeamUrl: string;    // URL or identifier for BFV team page
-  season: string;        // e.g., "2025/2026"
-  lastImport?: string;   // Last import timestamp
-  active: boolean;
-}
-
-export const insertBfvImportConfigSchema = z.object({
-  team: z.enum(TEAMS),
-  bfvTeamUrl: z.string().min(1, "BFV-URL ist erforderlich"),
-  season: z.string().min(1, "Saison ist erforderlich"),
-  active: z.boolean().default(true),
-});
-
-export type InsertBfvImportConfig = z.infer<typeof insertBfvImportConfigSchema>;
 
 // Event colors for UI
 export const EVENT_TYPE_COLORS: Record<EventType, string> = {

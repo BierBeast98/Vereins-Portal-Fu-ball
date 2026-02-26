@@ -1,25 +1,21 @@
-import { eq, and, between, sql, or, isNull } from "drizzle-orm";
+import { eq, and, between, or, isNull, desc } from "drizzle-orm";
 import { db } from "./db";
 import {
   calendarEventsTable,
   fieldMappingsTable,
-  bfvImportConfigsTable,
-  bfvImportHistoryTable,
+  importRunsTable,
+  importWarningsTable,
   adminSettingsTable,
   type CalendarEventDb,
   type InsertCalendarEventDb,
   type FieldMappingDb,
   type InsertFieldMappingDb,
-  type BfvImportConfigDb,
-  type InsertBfvImportConfigDb,
-  type BfvImportHistoryDb,
-  type InsertBfvImportHistoryDb,
+  type ImportRunDb,
+  type ImportWarningDb,
   type CalendarEvent,
   type InsertCalendarEvent,
   type FieldMapping,
   type InsertFieldMapping,
-  type BfvImportConfig,
-  type InsertBfvImportConfig,
   type Team,
   type Field,
   type EventType,
@@ -31,8 +27,6 @@ export interface IDbStorage {
   getCalendarEventsByDateRange(startDate: string, endDate: string): Promise<CalendarEvent[]>;
   getCalendarEventsByField(field: string, startDate: string, endDate: string): Promise<CalendarEvent[]>;
   getCalendarEvent(id: string): Promise<CalendarEvent | undefined>;
-  getCalendarEventByBfvId(bfvMatchId: string): Promise<CalendarEvent | undefined>;
-  getCalendarEventByMatchKey(teamHome: string, teamAway: string, date: string): Promise<CalendarEvent | undefined>;
   getCalendarEventsByRecurringGroup(recurringGroupId: string): Promise<CalendarEvent[]>;
   createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
   updateCalendarEvent(id: string, event: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
@@ -40,19 +34,20 @@ export interface IDbStorage {
   deleteCalendarEvent(id: string): Promise<boolean>;
   deleteCalendarEventsByRecurringGroup(recurringGroupId: string): Promise<number>;
   archiveCalendarEvent(id: string): Promise<boolean>;
-  getBfvEventIds(): Promise<string[]>;
+  getBfvCalendarEventBySourceId(externalId: string): Promise<CalendarEvent | undefined>;
+  getBfvCalendarEventByStableKey(stableKey: string): Promise<CalendarEvent | undefined>;
+  getActiveBfvCalendarEvents(): Promise<CalendarEvent[]>;
+  updateCalendarEventBfv(id: string, data: { lastSeenAt?: Date; archivedAt?: Date; date?: string; startTime?: string; endTime?: string; title?: string; location?: string; competition?: string; field?: string | null; rawPayload?: unknown }): Promise<CalendarEvent | undefined>;
+  createImportRun(): Promise<ImportRunDb>;
+  finishImportRun(id: string, data: { createdCount: number; updatedCount: number; archivedCount: number; errors: string[]; warnings: unknown[] }): Promise<void>;
+  createImportWarning(runId: string, type: string, message: string, eventRefs?: unknown): Promise<void>;
+  getImportRuns(limit?: number): Promise<ImportRunDb[]>;
+  getImportWarnings(runId?: string): Promise<ImportWarningDb[]>;
   getAllFieldMappings(): Promise<FieldMapping[]>;
   createFieldMapping(mapping: InsertFieldMapping): Promise<FieldMapping>;
   updateFieldMapping(id: string, mapping: Partial<InsertFieldMapping>): Promise<FieldMapping | undefined>;
   deleteFieldMapping(id: string): Promise<boolean>;
   getDefaultField(team: Team, eventType: EventType): Promise<Field | undefined>;
-  getAllBfvImportConfigs(): Promise<BfvImportConfig[]>;
-  getBfvImportConfig(id: string): Promise<BfvImportConfig | undefined>;
-  createBfvImportConfig(config: InsertBfvImportConfig): Promise<BfvImportConfig>;
-  updateBfvImportConfig(id: string, config: Partial<InsertBfvImportConfig & { lastImport?: string }>): Promise<BfvImportConfig | undefined>;
-  deleteBfvImportConfig(id: string): Promise<boolean>;
-  createImportHistory(history: InsertBfvImportHistoryDb): Promise<BfvImportHistoryDb>;
-  getImportHistory(): Promise<BfvImportHistoryDb[]>;
   getAdminPassword(): Promise<string>;
   setAdminPassword(password: string): Promise<void>;
   initializeDefaultFieldMappings(): Promise<void>;
@@ -75,6 +70,9 @@ function dbEventToCalendarEvent(dbEvent: CalendarEventDb): CalendarEvent {
     description: dbEvent.description ?? undefined,
     bfvImported: dbEvent.source === "BFV",
     bfvMatchId: dbEvent.externalId ?? undefined,
+    stableKey: dbEvent.stableKey ?? undefined,
+    lastSeenAt: dbEvent.lastSeenAt?.toISOString(),
+    archivedAt: dbEvent.archivedAt?.toISOString(),
     recurringGroupId: dbEvent.recurringGroupId ?? undefined,
     createdAt: dbEvent.createdAt.toISOString(),
     updatedAt: dbEvent.updatedAt.toISOString(),
@@ -87,17 +85,6 @@ function dbFieldMappingToFieldMapping(dbMapping: FieldMappingDb): FieldMapping {
     team: dbMapping.team as Team,
     eventType: dbMapping.eventType as EventType,
     defaultField: dbMapping.defaultField as Field,
-  };
-}
-
-function dbBfvConfigToBfvConfig(dbConfig: BfvImportConfigDb): BfvImportConfig {
-  return {
-    id: dbConfig.id,
-    team: dbConfig.team as Team,
-    bfvTeamUrl: dbConfig.bfvTeamUrl,
-    season: dbConfig.season,
-    lastImport: dbConfig.lastImport?.toISOString(),
-    active: dbConfig.active,
   };
 }
 
@@ -148,35 +135,6 @@ export class DbStorage implements IDbStorage {
     return event ? dbEventToCalendarEvent(event) : undefined;
   }
 
-  async getCalendarEventByBfvId(bfvMatchId: string): Promise<CalendarEvent | undefined> {
-    const [event] = await db
-      .select()
-      .from(calendarEventsTable)
-      .where(
-        and(
-          eq(calendarEventsTable.source, "BFV"),
-          eq(calendarEventsTable.externalId, bfvMatchId)
-        )
-      );
-    return event ? dbEventToCalendarEvent(event) : undefined;
-  }
-
-  async getCalendarEventByMatchKey(teamHome: string, teamAway: string, date: string): Promise<CalendarEvent | undefined> {
-    const [event] = await db
-      .select()
-      .from(calendarEventsTable)
-      .where(
-        and(
-          eq(calendarEventsTable.source, "BFV"),
-          eq(calendarEventsTable.teamHome, teamHome),
-          eq(calendarEventsTable.teamAway, teamAway),
-          eq(calendarEventsTable.date, date),
-          eq(calendarEventsTable.status, "ACTIVE")
-        )
-      );
-    return event ? dbEventToCalendarEvent(event) : undefined;
-  }
-
   async createCalendarEvent(insertEvent: InsertCalendarEvent): Promise<CalendarEvent> {
     const id = randomUUID();
     const now = new Date();
@@ -184,6 +142,7 @@ export class DbStorage implements IDbStorage {
     const dbEvent: InsertCalendarEventDb = {
       source: insertEvent.bfvImported ? "BFV" : "MANUAL",
       externalId: insertEvent.bfvMatchId || null,
+      stableKey: insertEvent.stableKey || null,
       recurringGroupId: insertEvent.recurringGroupId || null,
       type: insertEvent.type,
       title: insertEvent.title,
@@ -228,6 +187,9 @@ export class DbStorage implements IDbStorage {
     if (data.description !== undefined) updateData.description = data.description || null;
     if (data.bfvMatchId !== undefined) updateData.externalId = data.bfvMatchId || null;
     if (data.bfvImported !== undefined) updateData.source = data.bfvImported ? "BFV" : "MANUAL";
+    if (data.stableKey !== undefined) updateData.stableKey = data.stableKey || null;
+    if (data.lastSeenAt !== undefined) updateData.lastSeenAt = data.lastSeenAt ? new Date(data.lastSeenAt) : null;
+    if (data.archivedAt !== undefined) updateData.archivedAt = data.archivedAt ? new Date(data.archivedAt) : null;
 
     const [updated] = await db
       .update(calendarEventsTable)
@@ -297,14 +259,40 @@ export class DbStorage implements IDbStorage {
   async archiveCalendarEvent(id: string): Promise<boolean> {
     const result = await db
       .update(calendarEventsTable)
-      .set({ status: "ARCHIVED", updatedAt: new Date() })
+      .set({ status: "ARCHIVED", archivedAt: new Date(), updatedAt: new Date() })
       .where(eq(calendarEventsTable.id, id));
     return (result.rowCount ?? 0) > 0;
   }
 
-  async getBfvEventIds(): Promise<string[]> {
+  async getBfvCalendarEventBySourceId(externalId: string): Promise<CalendarEvent | undefined> {
+    const [event] = await db
+      .select()
+      .from(calendarEventsTable)
+      .where(
+        and(
+          eq(calendarEventsTable.source, "BFV"),
+          eq(calendarEventsTable.externalId, externalId)
+        )
+      );
+    return event ? dbEventToCalendarEvent(event) : undefined;
+  }
+
+  async getBfvCalendarEventByStableKey(stableKey: string): Promise<CalendarEvent | undefined> {
+    const [event] = await db
+      .select()
+      .from(calendarEventsTable)
+      .where(
+        and(
+          eq(calendarEventsTable.source, "BFV"),
+          eq(calendarEventsTable.stableKey, stableKey)
+        )
+      );
+    return event ? dbEventToCalendarEvent(event) : undefined;
+  }
+
+  async getActiveBfvCalendarEvents(): Promise<CalendarEvent[]> {
     const events = await db
-      .select({ externalId: calendarEventsTable.externalId })
+      .select()
       .from(calendarEventsTable)
       .where(
         and(
@@ -312,9 +300,92 @@ export class DbStorage implements IDbStorage {
           eq(calendarEventsTable.status, "ACTIVE")
         )
       );
-    return events
-      .filter((e) => e.externalId !== null)
-      .map((e) => e.externalId as string);
+    return events.map(dbEventToCalendarEvent);
+  }
+
+  async updateCalendarEventBfv(
+    id: string,
+    data: {
+      lastSeenAt?: Date;
+      archivedAt?: Date;
+      date?: string;
+      startTime?: string;
+      endTime?: string;
+      title?: string;
+      location?: string;
+      competition?: string;
+      field?: string | null;
+      rawPayload?: unknown;
+    }
+  ): Promise<CalendarEvent | undefined> {
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.lastSeenAt !== undefined) updateData.lastSeenAt = data.lastSeenAt;
+    if (data.archivedAt !== undefined) updateData.archivedAt = data.archivedAt;
+    if (data.date !== undefined) updateData.date = data.date;
+    if (data.startTime !== undefined) updateData.startTime = data.startTime;
+    if (data.endTime !== undefined) updateData.endTime = data.endTime;
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.location !== undefined) updateData.location = data.location;
+    if (data.competition !== undefined) updateData.competition = data.competition;
+    if (data.field !== undefined) updateData.field = data.field;
+    if (data.rawPayload !== undefined) updateData.rawPayload = data.rawPayload;
+    const [updated] = await db
+      .update(calendarEventsTable)
+      .set(updateData as Partial<CalendarEventDb>)
+      .where(eq(calendarEventsTable.id, id))
+      .returning();
+    return updated ? dbEventToCalendarEvent(updated) : undefined;
+  }
+
+  async createImportRun(): Promise<ImportRunDb> {
+    const [run] = await db.insert(importRunsTable).values({}).returning();
+    return run;
+  }
+
+  async finishImportRun(
+    id: string,
+    data: { createdCount: number; updatedCount: number; archivedCount: number; errors: string[]; warnings: unknown[] }
+  ): Promise<void> {
+    await db
+      .update(importRunsTable)
+      .set({
+        finishedAt: new Date(),
+        createdCount: data.createdCount,
+        updatedCount: data.updatedCount,
+        archivedCount: data.archivedCount,
+        errors: data.errors,
+        warnings: data.warnings,
+      })
+      .where(eq(importRunsTable.id, id));
+  }
+
+  async createImportWarning(runId: string, type: string, message: string, eventRefs?: unknown): Promise<void> {
+    await db.insert(importWarningsTable).values({ importRunId: runId, type, message, eventRefs: eventRefs ?? null });
+  }
+
+  async getImportRuns(limit = 20): Promise<ImportRunDb[]> {
+    const runs = await db
+      .select()
+      .from(importRunsTable)
+      .orderBy(desc(importRunsTable.startedAt))
+      .limit(limit);
+    return runs;
+  }
+
+  async getImportWarnings(runId?: string): Promise<ImportWarningDb[]> {
+    if (runId) {
+      return await db
+        .select()
+        .from(importWarningsTable)
+        .where(eq(importWarningsTable.importRunId, runId))
+        .orderBy(importWarningsTable.createdAt);
+    }
+    const rows = await db
+      .select()
+      .from(importWarningsTable)
+      .orderBy(desc(importWarningsTable.createdAt))
+      .limit(100);
+    return rows;
   }
 
   async getAllFieldMappings(): Promise<FieldMapping[]> {
@@ -358,68 +429,6 @@ export class DbStorage implements IDbStorage {
         )
       );
     return mapping ? (mapping.defaultField as Field) : undefined;
-  }
-
-  async getAllBfvImportConfigs(): Promise<BfvImportConfig[]> {
-    const configs = await db.select().from(bfvImportConfigsTable);
-    return configs.map(dbBfvConfigToBfvConfig);
-  }
-
-  async getBfvImportConfig(id: string): Promise<BfvImportConfig | undefined> {
-    const [config] = await db
-      .select()
-      .from(bfvImportConfigsTable)
-      .where(eq(bfvImportConfigsTable.id, id));
-    return config ? dbBfvConfigToBfvConfig(config) : undefined;
-  }
-
-  async createBfvImportConfig(insertConfig: InsertBfvImportConfig): Promise<BfvImportConfig> {
-    const id = randomUUID();
-    const [created] = await db
-      .insert(bfvImportConfigsTable)
-      .values({ id, ...insertConfig })
-      .returning();
-    return dbBfvConfigToBfvConfig(created);
-  }
-
-  async updateBfvImportConfig(
-    id: string,
-    data: Partial<InsertBfvImportConfig & { lastImport?: string }>
-  ): Promise<BfvImportConfig | undefined> {
-    const updateData: any = { ...data };
-    if (data.lastImport) {
-      updateData.lastImport = new Date(data.lastImport);
-    }
-    const [updated] = await db
-      .update(bfvImportConfigsTable)
-      .set(updateData)
-      .where(eq(bfvImportConfigsTable.id, id))
-      .returning();
-    return updated ? dbBfvConfigToBfvConfig(updated) : undefined;
-  }
-
-  async deleteBfvImportConfig(id: string): Promise<boolean> {
-    const result = await db
-      .delete(bfvImportConfigsTable)
-      .where(eq(bfvImportConfigsTable.id, id));
-    return (result.rowCount ?? 0) > 0;
-  }
-
-  async createImportHistory(history: InsertBfvImportHistoryDb): Promise<BfvImportHistoryDb> {
-    const id = randomUUID();
-    const [created] = await db
-      .insert(bfvImportHistoryTable)
-      .values({ id, ...history })
-      .returning();
-    return created;
-  }
-
-  async getImportHistory(): Promise<BfvImportHistoryDb[]> {
-    return db
-      .select()
-      .from(bfvImportHistoryTable)
-      .orderBy(sql`${bfvImportHistoryTable.importedAt} DESC`)
-      .limit(50);
   }
 
   async getAdminPassword(): Promise<string> {

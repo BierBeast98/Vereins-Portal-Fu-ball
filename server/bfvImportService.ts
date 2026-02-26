@@ -1,282 +1,185 @@
-import { eq, and, or, sql } from "drizzle-orm";
-import { db } from "./db";
-import {
-  calendarEventsTable,
-  type CalendarEvent,
-  type Team,
-  type Field,
-  type BfvImportSummary,
-  TEAMS,
-} from "@shared/schema";
+/**
+ * BFV Import run: upsert by source_id / stable_key, archive unseen,
+ * reschedule detection (same pairing, different date -> warning + auto-update or ambiguous).
+ */
+
 import { dbStorage } from "./dbStorage";
-import { randomUUID } from "crypto";
+import { fetchAndParse, type NormalizedMatch } from "./bfvImporter";
+import type { CalendarEvent } from "@shared/schema";
 
-export interface ParsedBfvMatch {
-  externalId: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  teamHome: string;
-  teamAway: string;
-  team: Team;
-  isHomeGame: boolean;
-  opponent: string;
-  competition: string;
-  location?: string;
-  rawData?: any;
+const DEFAULT_DURATION_MINUTES = parseInt(process.env.DEFAULT_MATCH_DURATION_MINUTES ?? "120", 10);
+const TIMEZONE = process.env.TIMEZONE ?? "Europe/Berlin";
+
+function toDateOnly(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+function toTimeString(d: Date): string {
+  return d.toTimeString().slice(0, 5);
 }
 
-function generateMatchKey(teamHome: string, teamAway: string, date: string, competition?: string): string {
-  const normalizedHome = teamHome.toLowerCase().trim();
-  const normalizedAway = teamAway.toLowerCase().trim();
-  const key = `${normalizedHome}|${normalizedAway}|${date}`;
-  if (competition) {
-    return `${key}|${competition.toLowerCase().trim()}`;
-  }
-  return key;
+export interface ImportResult {
+  runId: string;
+  createdCount: number;
+  updatedCount: number;
+  archivedCount: number;
+  errors: string[];
+  warnings: unknown[];
 }
 
-function generateExternalId(match: ParsedBfvMatch): string {
-  if (match.externalId && match.externalId.length > 0) {
-    return match.externalId;
-  }
-  return generateMatchKey(match.teamHome, match.teamAway, match.date, match.competition);
-}
+export async function runBfvImport(bfvUrl: string): Promise<ImportResult> {
+  const run = await dbStorage.createImportRun();
+  const runId = run.id;
+  const errors: string[] = [];
+  const warnings: unknown[] = [];
+  let createdCount = 0;
+  let updatedCount = 0;
+  let archivedCount = 0;
 
-async function getDefaultFieldForTeam(team: Team, isHomeGame: boolean): Promise<Field | undefined> {
-  if (!isHomeGame) {
-    return undefined;
-  }
-  const field = await dbStorage.getDefaultField(team, "spiel");
-  return field;
-}
+  try {
+    const { matches: feedMatches, source } = await fetchAndParse(bfvUrl, DEFAULT_DURATION_MINUTES);
+    const now = new Date();
 
-function matchNeedsUpdate(
-  existing: CalendarEvent,
-  match: ParsedBfvMatch,
-  newField?: Field
-): { needsUpdate: boolean; changes: string[] } {
-  const changes: string[] = [];
+    for (const m of feedMatches) {
+      try {
+        const existingBySourceId = m.sourceId
+          ? await dbStorage.getBfvCalendarEventBySourceId(m.sourceId)
+          : undefined;
+        const existingByStableKey =
+          existingBySourceId ?? (await dbStorage.getBfvCalendarEventByStableKey(m.stableKey));
 
-  if (existing.date !== match.date) {
-    changes.push(`Datum: ${existing.date} -> ${match.date}`);
-  }
-  if (existing.startTime !== match.startTime) {
-    changes.push(`Startzeit: ${existing.startTime} -> ${match.startTime}`);
-  }
-  if (existing.endTime !== match.endTime) {
-    changes.push(`Endzeit: ${existing.endTime} -> ${match.endTime}`);
-  }
-  if (newField && existing.field !== newField) {
-    changes.push(`Platz: ${existing.field || "keiner"} -> ${newField}`);
-  }
-  if (match.location && existing.location !== match.location) {
-    changes.push(`Ort: ${existing.location || "keiner"} -> ${match.location}`);
-  }
-  if (match.competition && existing.competition !== match.competition) {
-    changes.push(`Wettbewerb: ${existing.competition || "keiner"} -> ${match.competition}`);
-  }
+        const dateStr = toDateOnly(m.startAt);
+        const startTime = toTimeString(m.startAt);
+        const endTime = toTimeString(m.endAt);
+        const title = m.title || `${m.teamHome} - ${m.teamAway}`;
+        const isHome = (m.teamHome || "").toLowerCase().includes("greding");
 
-  return { needsUpdate: changes.length > 0, changes };
-}
-
-export async function importBfvMatches(
-  matches: ParsedBfvMatch[],
-  fileName?: string,
-  archiveMissing: boolean = false
-): Promise<BfvImportSummary> {
-  const summary: BfvImportSummary = {
-    createdCount: 0,
-    updatedCount: 0,
-    unchangedCount: 0,
-    archivedCount: 0,
-    errorCount: 0,
-    errors: [],
-  };
-
-  const processedExternalIds: Set<string> = new Set();
-
-  console.log(`[BFV Import] Starting import of ${matches.length} matches...`);
-
-  for (const match of matches) {
-    try {
-      const externalId = generateExternalId(match);
-      processedExternalIds.add(externalId);
-
-      let existingEvent = await dbStorage.getCalendarEventByBfvId(externalId);
-
-      if (!existingEvent) {
-        const matchKey = generateMatchKey(match.teamHome, match.teamAway, match.date, match.competition);
-        const [fallbackEvent] = await db
-          .select()
-          .from(calendarEventsTable)
-          .where(
-            and(
-              eq(calendarEventsTable.source, "BFV"),
-              eq(calendarEventsTable.teamHome, match.teamHome),
-              eq(calendarEventsTable.teamAway, match.teamAway),
-              eq(calendarEventsTable.status, "ACTIVE")
-            )
-          );
-        if (fallbackEvent) {
-          existingEvent = {
-            id: fallbackEvent.id,
-            title: fallbackEvent.title,
-            type: fallbackEvent.type as any,
-            team: fallbackEvent.team as Team | undefined,
-            field: fallbackEvent.field as Field | undefined,
-            date: fallbackEvent.date,
-            startTime: fallbackEvent.startTime,
-            endTime: fallbackEvent.endTime,
-            isHomeGame: fallbackEvent.isHomeGame ?? undefined,
-            opponent: fallbackEvent.opponent ?? undefined,
-            location: fallbackEvent.location ?? undefined,
-            competition: fallbackEvent.competition ?? undefined,
-            description: fallbackEvent.description ?? undefined,
-            bfvImported: true,
-            bfvMatchId: fallbackEvent.externalId ?? undefined,
-            createdAt: fallbackEvent.createdAt.toISOString(),
-            updatedAt: fallbackEvent.updatedAt.toISOString(),
-          };
-        }
-      }
-
-      const defaultField = await getDefaultFieldForTeam(match.team, match.isHomeGame);
-
-      if (existingEvent) {
-        const { needsUpdate, changes } = matchNeedsUpdate(existingEvent, match, defaultField);
-
-        if (needsUpdate) {
-          const title = match.isHomeGame
-            ? `${match.teamHome} vs ${match.teamAway}`
-            : `${match.teamHome} vs ${match.teamAway}`;
-
-          await db
-            .update(calendarEventsTable)
-            .set({
-              externalId: externalId,
-              title: title,
-              date: match.date,
-              startTime: match.startTime,
-              endTime: match.endTime,
-              field: match.isHomeGame ? defaultField : null,
-              location: match.location || null,
-              competition: match.competition || null,
-              teamHome: match.teamHome,
-              teamAway: match.teamAway,
-              rawPayload: match.rawData || null,
-              updatedAt: new Date(),
-            })
-            .where(eq(calendarEventsTable.id, existingEvent.id));
-
-          summary.updatedCount++;
-          console.log(`[BFV Import] Updated: ${title} (${changes.join(", ")})`);
+        if (existingByStableKey) {
+          await dbStorage.updateCalendarEventBfv(existingByStableKey.id, {
+            date: dateStr,
+            startTime,
+            endTime,
+            title,
+            location: m.locationText ?? undefined,
+            competition: m.competition ?? undefined,
+            field: m.pitch,
+            lastSeenAt: now,
+            rawPayload: m.raw,
+          });
+          updatedCount++;
         } else {
-          summary.unchangedCount++;
-        }
-      } else {
-        const title = match.isHomeGame
-          ? `${match.teamHome} vs ${match.teamAway}`
-          : `${match.teamHome} vs ${match.teamAway}`;
-
-        const id = randomUUID();
-        await db.insert(calendarEventsTable).values({
-          id,
-          source: "BFV",
-          externalId: externalId,
-          type: "spiel",
-          title: title,
-          team: match.team,
-          teamHome: match.teamHome,
-          teamAway: match.teamAway,
-          field: match.isHomeGame ? defaultField : null,
-          date: match.date,
-          startTime: match.startTime,
-          endTime: match.endTime,
-          isHomeGame: match.isHomeGame,
-          opponent: match.opponent,
-          location: match.location || null,
-          competition: match.competition || null,
-          rawPayload: match.rawData || null,
-          status: "ACTIVE",
-        });
-
-        summary.createdCount++;
-        console.log(`[BFV Import] Created: ${title} (${match.date} ${match.startTime})`);
-      }
-    } catch (error) {
-      summary.errorCount++;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      summary.errors.push(`Fehler bei ${match.teamHome} vs ${match.teamAway}: ${errorMsg}`);
-      console.error(`[BFV Import] Error:`, error);
-    }
-  }
-
-  if (archiveMissing && processedExternalIds.size > 0) {
-    try {
-      const existingBfvIds = await dbStorage.getBfvEventIds();
-      for (const existingId of existingBfvIds) {
-        if (!processedExternalIds.has(existingId)) {
-          const [event] = await db
-            .select()
-            .from(calendarEventsTable)
-            .where(
-              and(
-                eq(calendarEventsTable.externalId, existingId),
-                eq(calendarEventsTable.source, "BFV"),
-                eq(calendarEventsTable.status, "ACTIVE")
-              )
-            );
-          if (event) {
-            await db
-              .update(calendarEventsTable)
-              .set({ status: "ARCHIVED", updatedAt: new Date() })
-              .where(eq(calendarEventsTable.id, event.id));
-            summary.archivedCount++;
-            console.log(`[BFV Import] Archived: ${event.title}`);
+          await dbStorage.createCalendarEvent({
+            type: "spiel",
+            title,
+            date: dateStr,
+            startTime,
+            endTime,
+            isHomeGame: isHome,
+            opponent: isHome ? m.teamAway : m.teamHome,
+            location: m.locationText ?? undefined,
+            competition: m.competition ?? undefined,
+            field: m.pitch ?? undefined,
+            bfvImported: true,
+            bfvMatchId: m.sourceId ?? undefined,
+            stableKey: m.stableKey,
+          });
+          const created = await dbStorage.getBfvCalendarEventByStableKey(m.stableKey);
+          if (created) {
+            await dbStorage.updateCalendarEventBfv(created.id, { lastSeenAt: now, rawPayload: m.raw });
           }
+          createdCount++;
         }
+      } catch (e) {
+        errors.push(String(e));
       }
-    } catch (error) {
-      console.error(`[BFV Import] Error archiving missing events:`, error);
     }
+
+    const activeBfv = await dbStorage.getActiveBfvCalendarEvents();
+    const seenKeys = new Set(feedMatches.map((x) => x.sourceId ?? x.stableKey));
+    const seenStableKeys = new Set(feedMatches.map((x) => x.stableKey));
+
+    for (const event of activeBfv) {
+      const key = event.bfvMatchId ?? event.stableKey;
+      if (!key) continue;
+      if (seenKeys.has(key) || (event.stableKey && seenStableKeys.has(event.stableKey))) continue;
+
+      const pairing = {
+        home: (event.title?.split(" - ")[0] || "").trim(),
+        away: (event.title?.split(" - ")[1] || "").trim(),
+        competition: event.competition ?? "",
+      };
+      const possibleReschedule = feedMatches.filter((fm) => {
+        const samePairing =
+          (normalizeTeam(fm.teamHome) === normalizeTeam(pairing.home) &&
+            normalizeTeam(fm.teamAway) === normalizeTeam(pairing.away)) ||
+          (normalizeTeam(fm.teamHome) === normalizeTeam(pairing.away) &&
+            normalizeTeam(fm.teamAway) === normalizeTeam(pairing.home));
+        const sameComp = !pairing.competition || (fm.competition ?? "") === pairing.competition;
+        const otherDate = toDateOnly(fm.startAt) !== event.date;
+        return samePairing && sameComp && otherDate;
+      });
+
+      if (possibleReschedule.length === 1) {
+        const fm = possibleReschedule[0];
+        await dbStorage.updateCalendarEventBfv(event.id, {
+          date: toDateOnly(fm.startAt),
+          startTime: toTimeString(fm.startAt),
+          endTime: toTimeString(fm.endAt),
+          title: fm.title,
+          location: fm.locationText ?? undefined,
+          competition: fm.competition ?? undefined,
+          field: fm.pitch,
+          lastSeenAt: now,
+          rawPayload: fm.raw,
+        });
+        updatedCount++;
+        const msg = `Spiel ${event.title} wurde vom ${event.date} auf ${toDateOnly(fm.startAt)} verschoben (automatisch übernommen).`;
+        warnings.push({ type: "reschedule", message: msg, eventId: event.id });
+        await dbStorage.createImportWarning(runId, "reschedule", msg, [
+          { eventId: event.id, oldDate: event.date, newDate: toDateOnly(fm.startAt) },
+        ]);
+      } else if (possibleReschedule.length > 1) {
+        await dbStorage.archiveCalendarEvent(event.id);
+        archivedCount++;
+        const msg = `Spiel ${event.title} (${event.date}) fehlt im Feed; mehrere mögliche Verlegungen gefunden – bitte manuell prüfen.`;
+        warnings.push({ type: "ambiguous_reschedule", message: msg, eventId: event.id });
+        await dbStorage.createImportWarning(runId, "ambiguous_reschedule", msg, [{ eventId: event.id }]);
+      } else {
+        await dbStorage.archiveCalendarEvent(event.id);
+        archivedCount++;
+      }
+    }
+
+    await dbStorage.finishImportRun(runId, {
+      createdCount,
+      updatedCount,
+      archivedCount,
+      errors,
+      warnings,
+    });
+  } catch (err) {
+    errors.push(String(err));
+    await dbStorage.finishImportRun(runId, {
+      createdCount,
+      updatedCount,
+      archivedCount,
+      errors,
+      warnings,
+    });
   }
 
-  await dbStorage.createImportHistory({
-    createdCount: summary.createdCount,
-    updatedCount: summary.updatedCount,
-    unchangedCount: summary.unchangedCount,
-    archivedCount: summary.archivedCount,
-    errorCount: summary.errorCount,
-    fileName: fileName || null,
-    notes: summary.errors.length > 0 ? summary.errors.join("\n") : null,
-  });
-
-  console.log(`[BFV Import] Complete: ${summary.createdCount} created, ${summary.updatedCount} updated, ${summary.unchangedCount} unchanged, ${summary.archivedCount} archived, ${summary.errorCount} errors`);
-
-  return summary;
+  return {
+    runId,
+    createdCount,
+    updatedCount,
+    archivedCount,
+    errors,
+    warnings,
+  };
 }
 
-export function parseTeamFromName(teamName: string, sectionTeam?: Team): Team {
-  const normalized = teamName.toLowerCase();
-
-  if (sectionTeam) {
-    return sectionTeam;
-  }
-
-  if (normalized.includes("a-jugend") || normalized.includes("a-junioren")) return "a-jugend";
-  if (normalized.includes("b-jugend") || normalized.includes("b-junioren")) return "b-jugend";
-  if (normalized.includes("c-jugend") || normalized.includes("c-junioren")) return "c-jugend";
-  if (normalized.includes("d-jugend") || normalized.includes("d-junioren")) return "d-jugend";
-  if (normalized.includes("e-jugend") || normalized.includes("e-junioren")) return "e-jugend";
-  if (normalized.includes("f-jugend") || normalized.includes("f-junioren")) return "f-jugend";
-  if (normalized.includes("g-jugend") || normalized.includes("g-junioren")) return "g-jugend";
-  if (normalized.includes("damen") || normalized.includes("frauen")) return "damen";
-  if (normalized.includes("alte herren") || normalized.includes("ah")) return "alte-herren";
-
-  if (normalized.includes("ii") || normalized.includes(" 2") || normalized.endsWith("2")) {
-    return "herren2";
-  }
-
-  return "herren";
+function normalizeTeam(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }

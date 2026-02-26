@@ -2,14 +2,12 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { dbStorage } from "./dbStorage";
-import { importBfvMatches, type ParsedBfvMatch, parseTeamFromName } from "./bfvImportService";
 import { 
   insertProductSchema, 
   insertCampaignSchema, 
   insertOrderSchema,
   insertCalendarEventSchema,
   insertFieldMappingSchema,
-  insertBfvImportConfigSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { sendOrderConfirmation } from "./email";
@@ -24,230 +22,6 @@ function addHours(time: string, hours: number): string {
   const [h, m] = time.split(":").map(Number);
   const newHour = (h + hours) % 24;
   return `${newHour.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-}
-
-// Parse BFV HTML page to extract match data
-function parseBfvMatches(html: string, team: Team): Array<{
-  date: string;
-  time: string;
-  opponent: string;
-  competition: string;
-  isHome: boolean;
-  location?: string;
-  bfvMatchId: string;
-}> {
-  const matches: any[] = [];
-  
-  // BFV uses structured data in their pages
-  // Look for match entries in the HTML
-  const matchPattern = /data-match-id="([^"]+)"[\s\S]*?data-date="([^"]+)"[\s\S]*?data-time="([^"]+)"[\s\S]*?<span[^>]*class="[^"]*home-team[^"]*"[^>]*>([^<]+)<[\s\S]*?<span[^>]*class="[^"]*away-team[^"]*"[^>]*>([^<]+)</g;
-  
-  let match;
-  while ((match = matchPattern.exec(html)) !== null) {
-    const [, matchId, date, time, homeTeam, awayTeam] = match;
-    const isHome = homeTeam.toLowerCase().includes("greding");
-    
-    matches.push({
-      bfvMatchId: matchId,
-      date: date,
-      time: time,
-      opponent: isHome ? awayTeam.trim() : homeTeam.trim(),
-      isHome,
-      competition: "Liga",
-    });
-  }
-  
-  return matches;
-}
-
-// Determine team from match text
-function determineTeamFromMatch(homeTeam: string, awayTeam: string): Team | undefined {
-  const gredingTeam = homeTeam.includes("TSV Greding") ? homeTeam : awayTeam;
-  
-  // Check for specific team identifiers
-  if (gredingTeam.includes("TSV Greding II") || gredingTeam.includes("TSV Greding 2")) {
-    return "herren2";
-  }
-  if (gredingTeam === "TSV Greding" || gredingTeam.trim() === "TSV Greding") {
-    return "herren";
-  }
-  
-  // Check age group sections from PDF context
-  return undefined;
-}
-
-// Parse BFV PDF Vereinsspielplan
-interface ParsedPdfMatch {
-  type: string;
-  league: string;
-  date: string;
-  time: string;
-  homeTeam: string;
-  awayTeam: string;
-  location?: string;
-  team: Team;
-  isHome: boolean;
-}
-
-function parseBfvPdf(text: string): ParsedPdfMatch[] {
-  const matches: ParsedPdfMatch[] = [];
-  
-  // The PDF text comes as continuous text with spaces
-  // Pattern: TYPE LEAGUE DATE TIME HOMETEAM - AWAYTEAM LOCATION
-  // Example: FS Freundschaftsspiele 20.02.2026 19:00 DJK Enkering - TSV Greding II Sportplatz...
-  
-  // Find all section markers to determine team context
-  const sectionPattern = /\b(Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|E-Junioren|F-Junioren|Alte Herren)\b/gi;
-  const sections: { name: string; pos: number }[] = [];
-  let sectionMatch;
-  while ((sectionMatch = sectionPattern.exec(text)) !== null) {
-    sections.push({ name: sectionMatch[1], pos: sectionMatch.index });
-  }
-  
-  // Main pattern to find matches: TYPE LEAGUE DATE TIME TEAM1 - TEAM2
-  // Match format: (FS|ME|HM|PO) (League) (DD.MM.YYYY) (HH:MM) (Team1) - (Team2)
-  // Lookahead terminators include: venue names, next match type, section headers, page markers, next date, or newline
-  const matchPattern = /\b(FS|ME|HM|PO)\s+([\w\s-]+?)\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s+([^-]+?)\s+-\s+([A-Za-zÄÖÜäöüß0-9\s()/.]+?)(?=\s+(?:Sportanlage|Sportplatz|Sportpark|Sporthalle|Stadion|Arena|Gemeindehalle|Turnhalle|Bezirkssportanlage|Rasenplatz|Kunstrasen|Hartplatz|TSV Greding|FS|ME|HM|PO|Herren|Damen|[A-G]-Jugend|[A-G]-Junioren|E-Junioren|F-Junioren|G-Junioren|Alte Herren|Kursiv|Seite|Vereinsspielplan|Stand:|\d{2}\.\d{2}\.\d{4}|\n)|\s*$)/gi;
-  
-  let match;
-  while ((match = matchPattern.exec(text)) !== null) {
-    const [fullMatch, type, leagueRaw, dateStr, timeStr, homeTeamRaw, awayTeamRaw] = match;
-    const matchPos = match.index;
-    
-    // Clean up team names
-    let homeTeam = homeTeamRaw.trim();
-    let awayTeam = awayTeamRaw.trim();
-    
-    // Skip SPIELFREI entries
-    if (awayTeam === "SPIELFREI" || homeTeam === "SPIELFREI") {
-      continue;
-    }
-    
-    // Check if it's a TSV Greding match
-    const isGredingMatch = homeTeam.includes("TSV Greding") || awayTeam.includes("TSV Greding");
-    if (!isGredingMatch) {
-      continue;
-    }
-    
-    const isHome = homeTeam.includes("TSV Greding");
-    
-    // Determine which Greding team based on section context FIRST, then team name
-    let team: Team = "herren";
-    const gredingTeamStr = isHome ? homeTeam : awayTeam;
-    
-    // Find the section this match belongs to FIRST
-    let currentSection = "";
-    for (const section of sections) {
-      if (section.pos < matchPos) {
-        currentSection = section.name;
-      } else {
-        break;
-      }
-    }
-    
-    // Check section context first - youth teams take priority
-    if (currentSection) {
-      const sectionLower = currentSection.toLowerCase();
-      if (sectionLower.includes("e-juni") || sectionLower.includes("e-jugend")) team = "e-jugend";
-      else if (sectionLower.includes("f-juni") || sectionLower.includes("f-jugend")) team = "f-jugend";
-      else if (sectionLower.includes("d-juni") || sectionLower.includes("d-jugend")) team = "d-jugend";
-      else if (sectionLower.includes("c-juni") || sectionLower.includes("c-jugend")) team = "c-jugend";
-      else if (sectionLower.includes("b-juni") || sectionLower.includes("b-jugend")) team = "b-jugend";
-      else if (sectionLower.includes("a-juni") || sectionLower.includes("a-jugend")) team = "a-jugend";
-      else if (sectionLower.includes("g-juni") || sectionLower.includes("g-jugend")) team = "g-jugend";
-      else if (sectionLower.includes("damen")) team = "damen";
-      else if (sectionLower.includes("alte")) team = "alte-herren";
-      else if (sectionLower === "herren") {
-        // Only for Herren section, check for II or 2 suffix
-        if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
-          team = "herren2";
-        }
-      }
-    } else {
-      // No section context - fall back to checking team name for II/2
-      if (gredingTeamStr.includes("II") || gredingTeamStr.match(/Greding\s*2/i)) {
-        team = "herren2";
-      }
-    }
-    
-    // Convert date from DD.MM.YYYY to YYYY-MM-DD
-    const [day, month, year] = dateStr.split('.');
-    const isoDate = `${year}-${month}-${day}`;
-    
-    // Clean up league name
-    let league = leagueRaw.trim();
-    
-    matches.push({
-      type,
-      league,
-      date: isoDate,
-      time: timeStr,
-      homeTeam,
-      awayTeam,
-      location: undefined,
-      team,
-      isHome,
-    });
-  }
-  
-  return matches;
-}
-
-// Generate sample BFV matches for demonstration
-function generateSampleBfvMatches(team: Team): InsertCalendarEvent[] {
-  const opponents = [
-    "FC Beilngries",
-    "SV Thalmässing", 
-    "TSV Hilpoltstein",
-    "SC Feucht",
-    "SV Allersberg",
-    "SpVgg Roth",
-    "ASV Neumarkt",
-    "DJK Stopfenheim",
-  ];
-  
-  const competitions = ["Kreisliga Süd", "Kreispokal"];
-  const matches: InsertCalendarEvent[] = [];
-  const today = new Date();
-  
-  // Generate upcoming matches for the next 3 months
-  for (let i = 0; i < 8; i++) {
-    const matchDate = new Date(today);
-    matchDate.setDate(today.getDate() + (i * 14) + 7); // Every 2 weeks
-    
-    // Alternate home/away
-    const isHome = i % 2 === 0;
-    const opponent = opponents[i % opponents.length];
-    const isSunday = matchDate.getDay() === 0;
-    
-    // Adjust to Sunday if not already
-    if (!isSunday) {
-      const daysUntilSunday = (7 - matchDate.getDay()) % 7;
-      matchDate.setDate(matchDate.getDate() + daysUntilSunday);
-    }
-    
-    const time = isHome ? "15:00" : "14:00";
-    
-    matches.push({
-      title: isHome 
-        ? `TSV Greding vs ${opponent}`
-        : `${opponent} vs TSV Greding`,
-      type: "spiel",
-      team: team,
-      field: isHome ? "a-platz" : undefined,
-      date: matchDate.toISOString().split("T")[0],
-      startTime: time,
-      endTime: addHours(time, 2),
-      isHomeGame: isHome,
-      opponent: opponent,
-      location: isHome ? undefined : `Sportplatz ${opponent.split(" ").pop()}`,
-      competition: i === 3 ? competitions[1] : competitions[0],
-      bfvImported: true,
-      bfvMatchId: `bfv-${team}-${matchDate.toISOString().split("T")[0]}-${i}`,
-    });
-  }
-  
-  return matches;
 }
 
 // Middleware to protect admin routes
@@ -770,149 +544,6 @@ export async function registerRoutes(
     }
   });
 
-  // BFV Import Config
-  app.get("/api/calendar/bfv-configs", requireAdmin, async (req, res) => {
-    try {
-      const configs = await dbStorage.getAllBfvImportConfigs();
-      res.json(configs);
-    } catch (error) {
-      res.status(500).json({ error: "BFV-Konfigurationen konnten nicht geladen werden" });
-    }
-  });
-
-  app.post("/api/calendar/bfv-configs", requireAdmin, async (req, res) => {
-    try {
-      const data = insertBfvImportConfigSchema.parse(req.body);
-      const config = await dbStorage.createBfvImportConfig(data);
-      res.status(201).json(config);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      res.status(500).json({ error: "BFV-Konfiguration konnte nicht erstellt werden" });
-    }
-  });
-
-  app.delete("/api/calendar/bfv-configs/:id", requireAdmin, async (req, res) => {
-    try {
-      const deleted = await dbStorage.deleteBfvImportConfig(req.params.id as string);
-      if (!deleted) {
-        return res.status(404).json({ error: "BFV-Konfiguration nicht gefunden" });
-      }
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ error: "BFV-Konfiguration konnte nicht gelöscht werden" });
-    }
-  });
-  
-  // Import history
-  app.get("/api/calendar/import-history", requireAdmin, async (req, res) => {
-    try {
-      const history = await dbStorage.getImportHistory();
-      res.json(history);
-    } catch (error) {
-      res.status(500).json({ error: "Import-Historie konnte nicht geladen werden" });
-    }
-  });
-
-  // BFV Import - Fetch and import matches from BFV website using idempotent import service
-  app.post("/api/calendar/bfv-import/:configId", requireAdmin, async (req, res) => {
-    try {
-      const configId = req.params.configId as string;
-      const useSampleData = req.query.sample === "true";
-      const config = await dbStorage.getBfvImportConfig(configId);
-      
-      if (!config) {
-        return res.status(404).json({ error: "BFV-Konfiguration nicht gefunden" });
-      }
-
-      const bfvUrl = config.bfvTeamUrl;
-      let bfvMatches: ParsedBfvMatch[] = [];
-      let fetchFailed = false;
-      let fetchError: string | null = null;
-      
-      if (!useSampleData) {
-        try {
-          const response = await fetch(bfvUrl, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (compatible; TSV-Portal/1.0)",
-              "Accept": "text/html,application/xhtml+xml",
-            },
-          });
-          
-          if (response.ok) {
-            const html = await response.text();
-            const matches = parseBfvMatches(html, config.team);
-            
-            // Convert to ParsedBfvMatch format for idempotent import
-            bfvMatches = matches.map((match) => ({
-              externalId: match.bfvMatchId || `html-${match.date}-${match.time}-${match.opponent.substring(0, 10)}`.replace(/\s/g, ""),
-              date: match.date,
-              startTime: match.time,
-              endTime: addHours(match.time, 2),
-              teamHome: match.isHome ? "TSV Greding" : match.opponent,
-              teamAway: match.isHome ? match.opponent : "TSV Greding",
-              team: config.team,
-              isHomeGame: match.isHome,
-              opponent: match.opponent,
-              competition: match.competition || "",
-              location: match.location,
-              rawData: match,
-            }));
-          } else {
-            fetchFailed = true;
-            fetchError = `BFV-Server nicht erreichbar (Status: ${response.status})`;
-          }
-        } catch (err) {
-          console.error("BFV fetch error:", err);
-          fetchFailed = true;
-          fetchError = "Verbindung zum BFV-Server fehlgeschlagen";
-        }
-      }
-
-      // Only use sample data if explicitly requested or for demonstration purposes
-      if (useSampleData || (fetchFailed && bfvMatches.length === 0)) {
-        const sampleMatches = generateSampleBfvMatches(config.team);
-        
-        // Convert sample matches to ParsedBfvMatch format
-        bfvMatches = sampleMatches.map((match) => ({
-          externalId: match.bfvMatchId || `sample-${match.date}-${match.startTime}-${match.opponent?.substring(0, 10) || ""}`.replace(/\s/g, ""),
-          date: match.date,
-          startTime: match.startTime,
-          endTime: match.endTime,
-          teamHome: match.isHomeGame ? "TSV Greding" : (match.opponent || ""),
-          teamAway: match.isHomeGame ? (match.opponent || "") : "TSV Greding",
-          team: config.team,
-          isHomeGame: match.isHomeGame || false,
-          opponent: match.opponent || "",
-          competition: match.competition || "",
-          location: match.location,
-          rawData: match,
-        }));
-      }
-
-      // Use idempotent import service
-      const summary = await importBfvMatches(bfvMatches, `bfv-html-${config.team}`);
-
-      await dbStorage.updateBfvImportConfig(configId, {
-        lastImport: new Date().toISOString(),
-      });
-
-      res.json({ 
-        success: true, 
-        imported: summary.createdCount,
-        updated: summary.updatedCount,
-        unchanged: summary.unchangedCount,
-        archived: summary.archivedCount,
-        usedSampleData: useSampleData || fetchFailed,
-        fetchError: fetchError,
-      });
-    } catch (error) {
-      console.error("BFV import error:", error);
-      res.status(500).json({ error: "BFV-Import fehlgeschlagen" });
-    }
-  });
-
   // Calendar Export (PDF placeholder - would need a PDF library for full implementation)
   app.get("/api/calendar/export", requireAdmin, async (req, res) => {
     try {
@@ -975,65 +606,6 @@ export async function registerRoutes(
     }
   });
 
-  // BFV PDF Import - Upload and parse PDF Vereinsspielplan with idempotent upsert
-  app.post("/api/calendar/bfv-import-pdf", requireAdmin, upload.single("pdf"), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Keine PDF-Datei hochgeladen" });
-      }
-
-      // Use pdfjs-dist directly for PDF parsing
-      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      const doc = await pdfjs.getDocument({ data: new Uint8Array(req.file.buffer) }).promise;
-      let text = "";
-      for (let i = 1; i <= doc.numPages; i++) {
-        const page = await doc.getPage(i);
-        const content = await page.getTextContent();
-        text += (content.items as any[]).map((item: any) => item.str).join(" ") + "\n";
-      }
-      
-      const parsedMatches = parseBfvPdf(text);
-      
-      // Convert to ParsedBfvMatch format for idempotent import
-      const bfvMatches: ParsedBfvMatch[] = parsedMatches.map((match) => {
-        const externalId = `pdf-${match.date}-${match.time}-${match.homeTeam.substring(0, 10)}-${match.awayTeam.substring(0, 10)}`.replace(/\s/g, "");
-        const opponent = match.isHome ? match.awayTeam : match.homeTeam;
-        
-        return {
-          externalId,
-          date: match.date,
-          startTime: match.time,
-          endTime: addHours(match.time, 2),
-          teamHome: match.homeTeam,
-          teamAway: match.awayTeam,
-          team: match.team,
-          isHomeGame: match.isHome,
-          opponent,
-          competition: match.league || "",
-          location: match.isHome ? undefined : match.location,
-          rawData: match,
-        };
-      });
-      
-      // Use idempotent import service
-      const summary = await importBfvMatches(bfvMatches, req.file.originalname);
-      
-      res.json({ 
-        success: true, 
-        imported: summary.createdCount,
-        updated: summary.updatedCount,
-        unchanged: summary.unchangedCount,
-        archived: summary.archivedCount,
-        errors: summary.errorCount,
-        total: parsedMatches.length,
-        errorMessages: summary.errors,
-      });
-    } catch (error) {
-      console.error("PDF import error:", error);
-      res.status(500).json({ error: "PDF-Import fehlgeschlagen: " + (error as Error).message });
-    }
-  });
-
   // ============================================
   // IMAGE UPLOAD & SERVING
   // ============================================
@@ -1065,6 +637,67 @@ export async function registerRoutes(
       res.status(500).json({ error: "Bild konnte nicht geladen werden" });
     }
   });
+
+  // ============================================
+  // BFV IMPORT (ICS / Scraping, 24h job + manual)
+  // ============================================
+
+  const { triggerBfvImportNow, isImportRunning, startBfvScheduler } = await import("./bfvScheduler");
+
+  app.get("/api/calendar/bfv-import/runs", requireAdmin, async (_req, res) => {
+    try {
+      const runs = await dbStorage.getImportRuns(30);
+      res.json(runs.map((r) => ({
+        id: r.id,
+        startedAt: r.startedAt?.toISOString(),
+        finishedAt: r.finishedAt?.toISOString(),
+        source: r.source,
+        createdCount: r.createdCount,
+        updatedCount: r.updatedCount,
+        archivedCount: r.archivedCount,
+        errors: r.errors ?? [],
+        warnings: r.warnings ?? [],
+      })));
+    } catch (e) {
+      res.status(500).json({ error: "Import-Läufe konnten nicht geladen werden" });
+    }
+  });
+
+  app.get("/api/calendar/bfv-import/warnings", requireAdmin, async (req, res) => {
+    try {
+      const runId = req.query.runId as string | undefined;
+      const list = await dbStorage.getImportWarnings(runId);
+      res.json(list.map((w) => ({
+        id: w.id,
+        importRunId: w.importRunId,
+        type: w.type,
+        message: w.message,
+        eventRefs: w.eventRefs,
+        createdAt: w.createdAt?.toISOString(),
+      })));
+    } catch (e) {
+      res.status(500).json({ error: "Hinweise konnten nicht geladen werden" });
+    }
+  });
+
+  app.post("/api/calendar/bfv-import/run", requireAdmin, async (_req, res) => {
+    try {
+      const result = await triggerBfvImportNow();
+      if (result.ok) {
+        res.json(result);
+      } else {
+        res.status(400).json({ ok: false, error: result.message });
+      }
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.get("/api/calendar/bfv-import/status", requireAdmin, async (_req, res) => {
+    res.json({ running: isImportRunning(), bfvUrlConfigured: !!process.env.BFV_URL });
+  });
+
+  startBfvScheduler();
 
   return httpServer;
 }
