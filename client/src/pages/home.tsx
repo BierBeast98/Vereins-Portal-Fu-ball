@@ -1,17 +1,44 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import type { Campaign } from "@shared/schema";
+import type { Campaign, CalendarEvent, Field } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Package, Calendar, ArrowRight, Lock } from "lucide-react";
+import { Calendar, ArrowRight, Lock } from "lucide-react";
 import { format, parseISO, isPast, isFuture, isWithinInterval } from "date-fns";
 import { de } from "date-fns/locale";
+import tsvLogo from "@/TSV_Greding_logo_transparent.png";
+import { FieldSchedule } from "@/components/field-schedule";
+import { TrainingRequestDialog } from "@/components/training-request-dialog";
+import { FIELDS } from "@shared/schema";
 
 export default function HomePage() {
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns/active"],
+  });
+
+  const [fieldView, setFieldView] = useState<"a" | "b" | "both">("both");
+  const [requestOpen, setRequestOpen] = useState(false);
+
+  const today = useMemo(() => new Date(), []);
+  const startDateStr = useMemo(() => {
+    const d = new Date(today);
+    return format(d, "yyyy-MM-dd");
+  }, [today]);
+  const days = 7;
+
+  const { data: fieldEvents = [] } = useQuery<CalendarEvent[]>({
+    queryKey: ["/api/public/calendar/fields", startDateStr, days],
+    queryFn: async () => {
+      const end = new Date(startDateStr + "T00:00:00");
+      end.setDate(end.getDate() + (days - 1));
+      const endStr = format(end, "yyyy-MM-dd");
+      const res = await fetch(`/api/public/calendar/fields?startDate=${startDateStr}&endDate=${endStr}`);
+      if (!res.ok) throw new Error("Failed to fetch field events");
+      return res.json();
+    },
   });
 
   const getCampaignStatus = (campaign: Campaign) => {
@@ -49,8 +76,12 @@ export default function HomePage() {
         </Link>
         <div className="max-w-4xl mx-auto text-center">
           <div className="flex items-center justify-center mb-6">
-            <div className="h-16 w-16 rounded-xl bg-primary-foreground/10 flex items-center justify-center">
-              <Package className="h-8 w-8" />
+            <div className="h-20 w-20 rounded-xl bg-primary-foreground/10 flex items-center justify-center overflow-hidden shadow-lg">
+              <img
+                src={tsvLogo}
+                alt="TSV Greding Logo"
+                className="h-full w-full object-contain"
+              />
             </div>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold mb-4">Vereinsportal TSV Greding</h1>
@@ -61,7 +92,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto p-4 md:p-8">
+      <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-10">
         <h2 className="text-2xl font-semibold mb-6">
           Aktive Sammelbestellungen
         </h2>
@@ -125,7 +156,71 @@ export default function HomePage() {
           </Card>
         )}
 
-        <div className="mt-12 pt-8 border-t">
+        <section className="pt-8 border-t">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+            <div>
+              <h2 className="text-2xl font-semibold">Platzbelegung (Betreuer-Ansicht)</h2>
+              <p className="text-sm text-muted-foreground">
+                Übersicht der nächsten 7 Tage für A- und B-Platz. Spiele und bestätigte Trainings werden angezeigt.
+              </p>
+            </div>
+            <div className="flex flex-col items-stretch gap-3 md:items-end">
+              <div className="inline-flex rounded-md shadow-sm border bg-background self-start md:self-end" role="group">
+              <button
+                type="button"
+                className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-l-md ${
+                  fieldView === "a" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                }`}
+                onClick={() => setFieldView("a")}
+              >
+                Platz A
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 text-xs md:text-sm font-medium border-l ${
+                  fieldView === "both" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                }`}
+                onClick={() => setFieldView("both")}
+              >
+                Beide
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-r-md border-l ${
+                  fieldView === "b" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                }`}
+                onClick={() => setFieldView("b")}
+              >
+                Platz B
+              </button>
+            </div>
+              <Button variant="default" size="sm" onClick={() => setRequestOpen(true)}>
+                Training vorschlagen
+              </Button>
+            </div>
+          </div>
+
+          <FieldSchedule
+            events={fieldEvents}
+            startDate={startDateStr}
+            days={days}
+            fields={
+              fieldView === "a"
+                ? (["a-platz"] as Field[])
+                : fieldView === "b"
+                ? (["b-platz"] as Field[])
+                : (FIELDS as Field[])
+            }
+          />
+
+          <TrainingRequestDialog
+            open={requestOpen}
+            onOpenChange={setRequestOpen}
+            defaultDate={startDateStr}
+          />
+        </section>
+
+        <div className="pt-8 border-t">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <Lock className="h-4 w-4" />
             <Link href="/admin/products" className="text-sm hover:underline">

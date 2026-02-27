@@ -85,6 +85,25 @@ export const importWarningsTable = pgTable("import_warnings", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Training / event requests from coaches (pending approval by admin)
+export const eventRequestsTable = pgTable("event_requests", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  createdBy: varchar("created_by", { length: 255 }), // free-text name of coach/betreuer
+  type: varchar("type", { length: 50 }).notNull().default("training"),
+  title: varchar("title", { length: 500 }).notNull(),
+  pitch: varchar("pitch", { length: 20 }).notNull(), // a-platz, b-platz
+  startAt: timestamp("start_at", { withTimezone: false }).notNull(),
+  endAt: timestamp("end_at", { withTimezone: false }).notNull(),
+  note: text("note"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, approved, rejected
+  adminNote: text("admin_note"),
+  approvedEventId: varchar("approved_event_id", { length: 36 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_event_requests_status_start").on(table.status, table.startAt),
+]);
+
 // Admin settings table
 export const adminSettingsTable = pgTable("admin_settings", {
   key: varchar("key", { length: 100 }).primaryKey(),
@@ -109,6 +128,7 @@ export type FieldMappingDb = typeof fieldMappingsTable.$inferSelect;
 export type InsertFieldMappingDb = z.infer<typeof insertFieldMappingDbSchema>;
 export type ImportRunDb = typeof importRunsTable.$inferSelect;
 export type ImportWarningDb = typeof importWarningsTable.$inferSelect;
+export type EventRequestDb = typeof eventRequestsTable.$inferSelect;
 
 // Available sizes for products
 export const AVAILABLE_SIZES = ["S", "M", "L", "XL", "XXL", "128", "140", "152", "164"] as const;
@@ -403,3 +423,46 @@ export const TEAM_BORDER_COLORS: Record<Team, string> = {
   "g-jugend": "border-yellow-500",
   "alte-herren": "border-slate-500",
 };
+
+// ======================================================
+// Event Requests (training proposals from coaches)
+// ======================================================
+
+export const EVENT_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
+export type EventRequestStatus = typeof EVENT_REQUEST_STATUSES[number];
+
+export const EVENT_REQUEST_TYPES = ["training"] as const;
+export type EventRequestType = typeof EVENT_REQUEST_TYPES[number];
+
+export interface EventRequest {
+  id: string;
+  createdBy?: string;
+  type: EventRequestType;
+  title: string;
+  pitch: Field;
+  startAt: string;
+  endAt: string;
+  note?: string;
+  status: EventRequestStatus;
+  adminNote?: string;
+  approvedEventId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const insertEventRequestSchema = z.object({
+  createdBy: z.string().min(1, "Name ist erforderlich").optional(),
+  type: z.enum(EVENT_REQUEST_TYPES).default("training"),
+  title: z.string().min(1, "Titel ist erforderlich").default("Training"),
+  pitch: z.enum(FIELDS),
+  startAt: z.string().datetime(),
+  endAt: z.string().datetime(),
+  note: z.string().optional(),
+});
+
+export type InsertEventRequest = z.infer<typeof insertEventRequestSchema>;
+
+export const updateEventRequestStatusSchema = z.object({
+  status: z.enum(EVENT_REQUEST_STATUSES),
+  adminNote: z.string().optional(),
+});

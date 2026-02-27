@@ -8,12 +8,15 @@ import {
   insertOrderSchema,
   insertCalendarEventSchema,
   insertFieldMappingSchema,
+  insertEventRequestSchema,
+  EVENT_REQUEST_STATUSES,
 } from "@shared/schema";
 import { z } from "zod";
 import { sendOrderConfirmation } from "./email";
-import type { Team, InsertCalendarEvent, Field } from "@shared/schema";
+import type { Team, InsertCalendarEvent, Field, EventRequestStatus } from "@shared/schema";
 import multer from "multer";
 import { processAndUploadImage, serveImage } from "./imageUpload";
+import { createEventRequestWithValidation, approveEventRequest, rejectEventRequest } from "./eventRequestService";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -165,6 +168,54 @@ export async function registerRoutes(
       res.json(campaigns);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch active campaigns" });
+    }
+  });
+
+  // ============================================
+  // PUBLIC CALENDAR / EVENT REQUESTS (no admin auth)
+  // ============================================
+
+  // Read-only calendar events for public landing page (fields widget)
+  app.get("/api/public/calendar/fields", async (req, res) => {
+    try {
+      const { startDate, endDate, field } = req.query;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: "Start- und Enddatum erforderlich" });
+      }
+
+      let events;
+      if (field) {
+        events = await dbStorage.getCalendarEventsByField(field as string, startDate as string, endDate as string);
+      } else {
+        events = await dbStorage.getCalendarEventsByDateRange(startDate as string, endDate as string);
+      }
+
+      res.json(events);
+    } catch (error) {
+      console.error("Error loading public calendar events:", error);
+      res.status(500).json({ error: "Termine konnten nicht geladen werden" });
+    }
+  });
+
+  // Create training request from landing page
+  app.post("/api/public/event-requests", async (req, res) => {
+    try {
+      const data = insertEventRequestSchema.parse(req.body);
+      const { request } = await createEventRequestWithValidation(data);
+      res.status(201).json(request);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      if ((error as any).code === "CONFLICT") {
+        return res.status(409).json({ 
+          code: "CONFLICT", 
+          message: (error as Error).message, 
+          conflicts: (error as any).conflicts ?? [] 
+        });
+      }
+      console.error("Error creating event request:", error);
+      res.status(500).json({ error: "Vorschlag konnte nicht erstellt werden" });
     }
   });
 
@@ -603,6 +654,106 @@ export async function registerRoutes(
       }
     } catch (error) {
       res.status(500).json({ error: "Export fehlgeschlagen" });
+    }
+  });
+
+  // ============================================
+  // EVENT REQUESTS (Admin)
+  // ============================================
+
+  app.get("/api/admin/event-requests", requireAdmin, async (req, res) => {
+    try {
+      const { status, fromDate, toDate } = req.query;
+      let statusFilter: EventRequestStatus | undefined;
+      if (status && EVENT_REQUEST_STATUSES.includes(status as EventRequestStatus)) {
+        statusFilter = status as EventRequestStatus;
+      }
+      const requests = await dbStorage.listEventRequests({
+        status: statusFilter,
+        fromDate: (fromDate as string) || undefined,
+        toDate: (toDate as string) || undefined,
+      });
+      res.json(requests);
+    } catch (error) {
+      console.error("Error loading event requests:", error);
+      res.status(500).json({ error: "Vorschläge konnten nicht geladen werden" });
+    }
+  });
+
+  app.get("/api/admin/event-requests/:id", requireAdmin, async (req, res) => {
+    try {
+      const request = await dbStorage.getEventRequestById(req.params.id as string);
+      if (!request) {
+        return res.status(404).json({ error: "Vorschlag nicht gefunden" });
+      }
+      res.json(request);
+    } catch (error) {
+      res.status(500).json({ error: "Vorschlag konnte nicht geladen werden" });
+    }
+  });
+
+  app.patch("/api/admin/event-requests/:id", requireAdmin, async (req, res) => {
+    try {
+      // allow partial fields from insertEventRequestSchema plus adminNote/status
+      const base = insertEventRequestSchema.partial().parse(req.body);
+      const patch: any = { ...base };
+      if ("status" in req.body) {
+        if (!EVENT_REQUEST_STATUSES.includes(req.body.status)) {
+          return res.status(400).json({ error: "Ungültiger Status" });
+        }
+        patch.status = req.body.status;
+      }
+      if ("adminNote" in req.body) {
+        patch.adminNote = req.body.adminNote;
+      }
+      const updated = await dbStorage.updateEventRequest(req.params.id as string, patch);
+      if (!updated) {
+        return res.status(404).json({ error: "Vorschlag nicht gefunden" });
+      }
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Vorschlag konnte nicht aktualisiert werden" });
+    }
+  });
+
+  app.post("/api/admin/event-requests/:id/approve", requireAdmin, async (req, res) => {
+    try {
+      const base = insertEventRequestSchema.partial().parse(req.body);
+      const { request, event } = await approveEventRequest(req.params.id as string, {
+        ...base,
+        adminNote: (req.body as any)?.adminNote,
+      });
+      res.json({ request, event });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      if ((error as any).code === "CONFLICT") {
+        return res.status(409).json({
+          code: "CONFLICT",
+          message: (error as Error).message,
+          conflicts: (error as any).conflicts ?? [],
+        });
+      }
+      console.error("Error approving event request:", error);
+      res.status(500).json({ error: "Vorschlag konnte nicht freigegeben werden" });
+    }
+  });
+
+  app.post("/api/admin/event-requests/:id/reject", requireAdmin, async (req, res) => {
+    try {
+      const status: EventRequestStatus = (req.body?.status as EventRequestStatus) ?? "rejected";
+      if (!EVENT_REQUEST_STATUSES.includes(status)) {
+        return res.status(400).json({ error: "Ungültiger Status" });
+      }
+      const updated = await rejectEventRequest(req.params.id as string, status, req.body?.adminNote);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error rejecting event request:", error);
+      res.status(500).json({ error: "Vorschlag konnte nicht abgelehnt werden" });
     }
   });
 

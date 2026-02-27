@@ -6,19 +6,24 @@ import {
   importRunsTable,
   importWarningsTable,
   adminSettingsTable,
+  eventRequestsTable,
   type CalendarEventDb,
   type InsertCalendarEventDb,
   type FieldMappingDb,
   type InsertFieldMappingDb,
   type ImportRunDb,
   type ImportWarningDb,
+  type EventRequestDb,
   type CalendarEvent,
   type InsertCalendarEvent,
   type FieldMapping,
   type InsertFieldMapping,
+  type EventRequest,
+  type InsertEventRequest,
   type Team,
   type Field,
   type EventType,
+  type EventRequestStatus,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -51,6 +56,14 @@ export interface IDbStorage {
   getAdminPassword(): Promise<string>;
   setAdminPassword(password: string): Promise<void>;
   initializeDefaultFieldMappings(): Promise<void>;
+  // Event requests (training proposals)
+  createEventRequest(data: InsertEventRequest): Promise<EventRequest>;
+  getEventRequestById(id: string): Promise<EventRequest | null>;
+  listEventRequests(filter: { status?: EventRequestStatus; fromDate?: string; toDate?: string }): Promise<EventRequest[]>;
+  updateEventRequest(
+    id: string,
+    patch: Partial<InsertEventRequest> & { status?: EventRequestStatus; adminNote?: string; approvedEventId?: string | null }
+  ): Promise<EventRequest | null>;
 }
 
 function dbEventToCalendarEvent(dbEvent: CalendarEventDb): CalendarEvent {
@@ -85,6 +98,24 @@ function dbFieldMappingToFieldMapping(dbMapping: FieldMappingDb): FieldMapping {
     team: dbMapping.team as Team,
     eventType: dbMapping.eventType as EventType,
     defaultField: dbMapping.defaultField as Field,
+  };
+}
+
+function dbEventRequestToEventRequest(dbReq: EventRequestDb): EventRequest {
+  return {
+    id: dbReq.id,
+    createdBy: dbReq.createdBy ?? undefined,
+    type: (dbReq.type as EventRequest["type"]) ?? "training",
+    title: dbReq.title,
+    pitch: dbReq.pitch as Field,
+    startAt: dbReq.startAt.toISOString(),
+    endAt: dbReq.endAt.toISOString(),
+    note: dbReq.note ?? undefined,
+    status: dbReq.status as EventRequestStatus,
+    adminNote: dbReq.adminNote ?? undefined,
+    approvedEventId: dbReq.approvedEventId ?? undefined,
+    createdAt: dbReq.createdAt.toISOString(),
+    updatedAt: dbReq.updatedAt.toISOString(),
   };
 }
 
@@ -469,6 +500,84 @@ export class DbStorage implements IDbStorage {
     for (const mapping of defaultMappings) {
       await this.createFieldMapping(mapping);
     }
+  }
+
+  async createEventRequest(data: InsertEventRequest): Promise<EventRequest> {
+    const id = randomUUID();
+    const now = new Date();
+    const [row] = await db
+      .insert(eventRequestsTable)
+      .values({
+        id,
+        createdBy: data.createdBy ?? null,
+        type: data.type ?? "training",
+        title: data.title || "Training",
+        pitch: data.pitch,
+        startAt: new Date(data.startAt),
+        endAt: new Date(data.endAt),
+        note: data.note ?? null,
+        status: "pending",
+        adminNote: null,
+        approvedEventId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return dbEventRequestToEventRequest(row);
+  }
+
+  async getEventRequestById(id: string): Promise<EventRequest | null> {
+    const [row] = await db.select().from(eventRequestsTable).where(eq(eventRequestsTable.id, id));
+    return row ? dbEventRequestToEventRequest(row) : null;
+  }
+
+  async listEventRequests(filter: { status?: EventRequestStatus; fromDate?: string; toDate?: string }): Promise<EventRequest[]> {
+    const conditions = [];
+    if (filter.status) {
+      conditions.push(eq(eventRequestsTable.status, filter.status));
+    }
+    if (filter.fromDate && filter.toDate) {
+      conditions.push(
+        between(
+          eventRequestsTable.startAt,
+          new Date(filter.fromDate),
+          new Date(filter.toDate)
+        )
+      );
+    }
+    const whereClause = conditions.length ? and(...conditions) : undefined;
+    const rows = await db
+      .select()
+      .from(eventRequestsTable)
+      .where(whereClause ?? undefined)
+      .orderBy(eventRequestsTable.startAt, desc(eventRequestsTable.createdAt));
+    return rows.map(dbEventRequestToEventRequest);
+  }
+
+  async updateEventRequest(
+    id: string,
+    patch: Partial<InsertEventRequest> & { status?: EventRequestStatus; adminNote?: string; approvedEventId?: string | null }
+  ): Promise<EventRequest | null> {
+    const updateData: Partial<EventRequestDb> = {
+      updatedAt: new Date(),
+    };
+    if (patch.createdBy !== undefined) updateData.createdBy = patch.createdBy ?? null;
+    if (patch.type !== undefined) updateData.type = patch.type;
+    if (patch.title !== undefined) updateData.title = patch.title;
+    if (patch.pitch !== undefined) updateData.pitch = patch.pitch;
+    if (patch.startAt !== undefined) updateData.startAt = new Date(patch.startAt);
+    if (patch.endAt !== undefined) updateData.endAt = new Date(patch.endAt);
+    if (patch.note !== undefined) updateData.note = patch.note ?? null;
+    if (patch.status !== undefined) updateData.status = patch.status;
+    if (patch.adminNote !== undefined) updateData.adminNote = patch.adminNote ?? null;
+    if (patch.approvedEventId !== undefined) updateData.approvedEventId = patch.approvedEventId ?? null;
+
+    const [row] = await db
+      .update(eventRequestsTable)
+      .set(updateData)
+      .where(eq(eventRequestsTable.id, id))
+      .returning();
+    return row ? dbEventRequestToEventRequest(row) : null;
   }
 }
 

@@ -13,7 +13,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid, Download } from "lucide-react";
+import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid, Download, ListChecks } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 const shopItems = [
@@ -44,6 +44,11 @@ const planningItems = [
     title: "Platzbelegung",
     url: "/admin/fields",
     icon: LayoutGrid,
+  },
+  {
+    title: "Vorschläge / Requests",
+    url: "/admin/requests",
+    icon: ListChecks,
   },
   {
     title: "BFV-Import",
