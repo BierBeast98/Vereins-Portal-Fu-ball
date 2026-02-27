@@ -207,13 +207,6 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      if ((error as any).code === "CONFLICT") {
-        return res.status(409).json({ 
-          code: "CONFLICT", 
-          message: (error as Error).message, 
-          conflicts: (error as any).conflicts ?? [] 
-        });
-      }
       console.error("Error creating event request:", error);
       res.status(500).json({ error: "Vorschlag konnte nicht erstellt werden" });
     }

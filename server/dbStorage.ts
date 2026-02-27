@@ -108,6 +108,7 @@ function dbEventRequestToEventRequest(dbReq: EventRequestDb): EventRequest {
     type: (dbReq.type as EventRequest["type"]) ?? "training",
     title: dbReq.title,
     pitch: dbReq.pitch as Field,
+    team: dbReq.team as Team | undefined,
     startAt: dbReq.startAt.toISOString(),
     endAt: dbReq.endAt.toISOString(),
     note: dbReq.note ?? undefined,
@@ -513,6 +514,7 @@ export class DbStorage implements IDbStorage {
         type: data.type ?? "training",
         title: data.title || "Training",
         pitch: data.pitch,
+        team: data.team ?? null,
         startAt: new Date(data.startAt),
         endAt: new Date(data.endAt),
         note: data.note ?? null,
@@ -565,6 +567,7 @@ export class DbStorage implements IDbStorage {
     if (patch.type !== undefined) updateData.type = patch.type;
     if (patch.title !== undefined) updateData.title = patch.title;
     if (patch.pitch !== undefined) updateData.pitch = patch.pitch;
+    if (patch.team !== undefined) updateData.team = patch.team ?? null;
     if (patch.startAt !== undefined) updateData.startAt = new Date(patch.startAt);
     if (patch.endAt !== undefined) updateData.endAt = new Date(patch.endAt);
     if (patch.note !== undefined) updateData.note = patch.note ?? null;

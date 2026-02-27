@@ -27,6 +27,7 @@ async function main() {
         type varchar(50) NOT NULL DEFAULT 'training',
         title varchar(500) NOT NULL,
         pitch varchar(20) NOT NULL,
+        team varchar(50),
         start_at timestamp NOT NULL,
         end_at timestamp NOT NULL,
         note text,

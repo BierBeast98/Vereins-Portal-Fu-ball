@@ -48,17 +48,6 @@ export async function checkFieldConflicts(
 }
 
 export async function createEventRequestWithValidation(data: InsertEventRequest): Promise<{ request: EventRequest }> {
-  const startAt = new Date(data.startAt);
-  const endAt = new Date(data.endAt);
-
-  const { hasConflict, conflicts } = await checkFieldConflicts(data.pitch, startAt, endAt);
-  if (hasConflict) {
-    const error: any = new Error("Konflikt mit bestehenden Terminen");
-    error.code = "CONFLICT";
-    error.conflicts = conflicts;
-    throw error;
-  }
-
   const request = await dbStorage.createEventRequest(data);
   return { request };
 }

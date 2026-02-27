@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { EventRequest } from "@shared/schema";
+import type { EventRequest, Field, Team } from "@shared/schema";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FIELD_LABELS, FIELDS, type Field } from "@shared/schema";
+import { FIELD_LABELS, FIELDS, TEAM_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
 function formatDateTime(iso: string) {
@@ -17,11 +17,17 @@ function formatDateTime(iso: string) {
   return d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
 }
 
+interface RequestGroup {
+  head: EventRequest;
+  items: EventRequest[];
+  count: number;
+}
+
 export default function RequestsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected">("pending");
-  const [selected, setSelected] = useState<EventRequest | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<RequestGroup | null>(null);
 
   const { data: requests = [], isLoading } = useQuery<EventRequest[]>({
     queryKey: ["/api/admin/event-requests", statusFilter],
@@ -35,30 +41,87 @@ export default function RequestsPage() {
     },
   });
 
+  const groupedRequests = useMemo(() => {
+    const map = new Map<string, EventRequest[]>();
+    for (const req of requests) {
+      const start = new Date(req.startAt);
+      const end = new Date(req.endAt);
+      const durationMinutes = Math.round((end.getTime() - start.getTime()) / 60000);
+      const key = [
+        req.createdBy ?? "",
+        req.title,
+        req.pitch,
+        start.toISOString().slice(11, 16), // HH:MM
+        durationMinutes.toString(),
+        req.note ?? "",
+        req.status,
+      ].join("|");
+      const list = map.get(key) ?? [];
+      list.push(req);
+      map.set(key, list);
+    }
+    const groups = Array.from(map.values()).map((list) => {
+      const sorted = [...list].sort(
+        (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
+      );
+      return {
+        head: sorted[0],
+        items: sorted,
+        count: sorted.length,
+      };
+    });
+    groups.sort(
+      (a, b) => new Date(a.head.startAt).getTime() - new Date(b.head.startAt).getTime()
+    );
+    return groups;
+  }, [requests]);
+
   const approveMutation = useMutation({
-    mutationFn: async (payload: Partial<EventRequest>) => {
-      if (!selected) throw new Error("No selection");
-      const body: any = {};
-      if (payload.title) body.title = payload.title;
-      if (payload.pitch) body.pitch = payload.pitch;
-      if (payload.startAt) body.startAt = payload.startAt;
-      if (payload.endAt) body.endAt = payload.endAt;
-      if (payload.adminNote) body.adminNote = payload.adminNote;
-      const res = await fetch(`/api/admin/event-requests/${selected.id}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "Freigabe fehlgeschlagen");
+    mutationFn: async (input: {
+      group: RequestGroup;
+      payload: { title: string; pitch: Field; start: string; end: string; adminNote?: string };
+    }) => {
+      const { group, payload } = input;
+      if (!group) throw new Error("No selection");
+
+      const baseStart = new Date(payload.start);
+      const baseEnd = new Date(payload.end);
+      if (isNaN(baseStart.getTime()) || isNaN(baseEnd.getTime())) {
+        throw new Error("Ungültige Start- oder Endzeit");
       }
-      return res.json();
+      const durationMs = baseEnd.getTime() - baseStart.getTime();
+
+      for (const req of group.items) {
+        const dateOnly = req.startAt.slice(0, 10); // YYYY-MM-DD
+        const start = new Date(dateOnly + "T00:00:00");
+        start.setHours(baseStart.getHours(), baseStart.getMinutes(), 0, 0);
+        const end = new Date(start.getTime() + durationMs);
+
+        const body: any = {
+          title: payload.title,
+          pitch: payload.pitch,
+          startAt: start.toISOString(),
+          endAt: end.toISOString(),
+        };
+        if (payload.adminNote) body.adminNote = payload.adminNote;
+
+        const res = await fetch(`/api/admin/event-requests/${req.id}/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Freigabe fehlgeschlagen");
+        }
+        await res.json();
+      }
+      return true;
     },
     onSuccess: () => {
       toast({ title: "Vorschlag freigegeben", description: "Das Training wurde in den Kalender übernommen." });
-      setSelected(null);
+      setSelectedGroup(null);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
     },
@@ -68,23 +131,28 @@ export default function RequestsPage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: async (adminNote?: string) => {
-      if (!selected) throw new Error("No selection");
-      const res = await fetch(`/api/admin/event-requests/${selected.id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ status: "rejected", adminNote }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "Ablehnung fehlgeschlagen");
+    mutationFn: async (input: { group: RequestGroup; adminNote?: string }) => {
+      const { group, adminNote } = input;
+      if (!group) throw new Error("No selection");
+
+      for (const req of group.items) {
+        const res = await fetch(`/api/admin/event-requests/${req.id}/reject`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status: "rejected", adminNote }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Ablehnung fehlgeschlagen");
+        }
+        await res.json();
       }
-      return res.json();
+      return true;
     },
     onSuccess: () => {
       toast({ title: "Vorschlag abgelehnt" });
-      setSelected(null);
+      setSelectedGroup(null);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
     },
     onError: (err: any) => {
@@ -116,45 +184,68 @@ export default function RequestsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            {isLoading ? "Lade Vorschläge..." : `${requests.length} Vorschlag${requests.length === 1 ? "" : "e"}`}
+            {isLoading
+              ? "Lade Vorschläge..."
+              : `${groupedRequests.length} Anfrage${groupedRequests.length === 1 ? "" : "n"} (Serien gruppiert, insgesamt ${requests.length} Vorschläge)`}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {requests.length === 0 && !isLoading && (
             <p className="text-sm text-muted-foreground">Keine Vorschläge für den ausgewählten Status.</p>
           )}
-          {requests.map((req) => (
+          {groupedRequests.map((group) => {
+            const { head, items, count } = group;
+            return (
             <button
-              key={req.id}
+              key={head.id}
               className="w-full text-left border rounded-md px-3 py-2 hover:bg-muted/60 flex items-center justify-between gap-3"
-              onClick={() => setSelected(req)}
+              onClick={() => setSelectedGroup(group)}
             >
               <div>
                 <div className="font-medium">
-                  {req.title}{" "}
+                  {head.title}{" "}
                   <span className="text-xs text-muted-foreground">
-                    ({FIELD_LABELS[req.pitch]})
+                    ({FIELD_LABELS[head.pitch]})
                   </span>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {formatDateTime(req.startAt)} – {formatDateTime(req.endAt)}{" "}
-                  {req.createdBy && `· ${req.createdBy}`}
+                  {formatDateTime(head.startAt)} – {formatDateTime(head.endAt)}{" "}
+                  {head.createdBy && `· ${head.createdBy}`}
+                  {head.team && ` · ${TEAM_LABELS[head.team as Team]}`}
+                  {count > 1 && (
+                    <span className="ml-1 text-[11px] text-muted-foreground">
+                      · Serie, {count} Termine (bis{" "}
+                      {formatDateTime(items[items.length - 1].startAt)})
+                    </span>
+                  )}
                 </div>
               </div>
-              <Badge variant={req.status === "pending" ? "outline" : req.status === "approved" ? "default" : "destructive"}>
-                {req.status === "pending" ? "Offen" : req.status === "approved" ? "Freigegeben" : "Abgelehnt"}
+              <Badge
+                variant={
+                  head.status === "pending"
+                    ? "outline"
+                    : head.status === "approved"
+                    ? "default"
+                    : "destructive"
+                }
+              >
+                {head.status === "pending"
+                  ? "Offen"
+                  : head.status === "approved"
+                  ? "Freigegeben"
+                  : "Abgelehnt"}
               </Badge>
             </button>
-          ))}
+          )})}
         </CardContent>
       </Card>
 
-      {selected && (
+      {selectedGroup && (
         <RequestDialog
-          request={selected}
-          onClose={() => setSelected(null)}
-          onApprove={(payload) => approveMutation.mutate(payload)}
-          onReject={(note) => rejectMutation.mutate(note)}
+          group={selectedGroup}
+          onClose={() => setSelectedGroup(null)}
+          onApprove={(payload) => approveMutation.mutate({ group: selectedGroup, payload })}
+          onReject={(note) => rejectMutation.mutate({ group: selectedGroup, adminNote: note })}
         />
       )}
     </div>
@@ -162,27 +253,28 @@ export default function RequestsPage() {
 }
 
 interface RequestDialogProps {
-  request: EventRequest;
+  group: RequestGroup;
   onClose: () => void;
-  onApprove: (payload: Partial<EventRequest>) => void;
+  onApprove: (payload: { title: string; pitch: Field; start: string; end: string; adminNote?: string }) => void;
   onReject: (note?: string) => void;
 }
 
-function RequestDialog({ request, onClose, onApprove, onReject }: RequestDialogProps) {
-  const [title, setTitle] = useState(request.title);
-  const [pitch, setPitch] = useState<Field>(request.pitch);
-  const [start, setStart] = useState(request.startAt.slice(0, 16));
-  const [end, setEnd] = useState(request.endAt.slice(0, 16));
-  const [adminNote, setAdminNote] = useState(request.adminNote ?? "");
+function RequestDialog({ group, onClose, onApprove, onReject }: RequestDialogProps) {
+  const { head, count, items } = group;
+  const [title, setTitle] = useState(head.title);
+  const [pitch, setPitch] = useState<Field>(head.pitch);
+  const [start, setStart] = useState(head.startAt.slice(0, 16));
+  const [end, setEnd] = useState(head.endAt.slice(0, 16));
+  const [adminNote, setAdminNote] = useState(head.adminNote ?? "");
 
   const handleApprove = () => {
     onApprove({
       title,
       pitch,
-      startAt: new Date(start).toISOString(),
-      endAt: new Date(end).toISOString(),
+      start,
+      end,
       adminNote: adminNote || undefined,
-    } as any);
+    });
   };
 
   const handleReject = () => {
@@ -197,8 +289,8 @@ function RequestDialog({ request, onClose, onApprove, onReject }: RequestDialogP
         </DialogHeader>
         <div className="space-y-4">
           <div className="text-sm text-muted-foreground">
-            Angelegt von {request.createdBy || "unbekannt"} am{" "}
-            {formatDateTime(request.createdAt)}
+            Angelegt von {head.createdBy || "unbekannt"} am{" "}
+            {formatDateTime(head.createdAt)}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-2">
@@ -243,8 +335,14 @@ function RequestDialog({ request, onClose, onApprove, onReject }: RequestDialogP
           </div>
           <div className="space-y-2">
             <Label>Notiz Betreuer</Label>
-            <Textarea value={request.note ?? ""} readOnly />
+            <Textarea value={head.note ?? ""} readOnly />
           </div>
+          {head.team && (
+            <div className="space-y-2 text-sm">
+              <span className="font-medium">Mannschaft: </span>
+              <span>{TEAM_LABELS[head.team as Team]}</span>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="adminNote">Admin-Notiz (optional)</Label>
             <Textarea
@@ -259,10 +357,10 @@ function RequestDialog({ request, onClose, onApprove, onReject }: RequestDialogP
             Schließen
           </Button>
           <Button variant="destructive" onClick={handleReject}>
-            Ablehnen
+            Ablehnen{count > 1 ? " (Serie)" : ""}
           </Button>
           <Button onClick={handleApprove}>
-            Freigeben &amp; eintragen
+            Freigeben &amp; eintragen{count > 1 ? " (Serie)" : ""}
           </Button>
         </DialogFooter>
       </DialogContent>

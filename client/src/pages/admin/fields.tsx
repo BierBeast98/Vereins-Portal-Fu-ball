@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 import type { CalendarEvent } from "@shared/schema";
 import { 
@@ -45,12 +46,14 @@ function formatDateDE(date: Date): string {
   return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
 }
 
-const HOURS = Array.from({ length: 16 }, (_, i) => i + 7);
+// Relevant time span for field planning: 08:00–20:00
+const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
 
 export default function FieldsPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<"week" | "day">("week");
   const [filterTeam, setFilterTeam] = useState<string>("all");
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
   const weekDates = useMemo(() => getWeekDates(currentDate), [currentDate]);
   const startDate = formatDate(weekDates[0]);
@@ -121,7 +124,7 @@ export default function FieldsPage() {
     const endHour = parseInt(event.endTime.split(":")[0]);
     const endMin = parseInt(event.endTime.split(":")[1]);
     
-    const top = ((startHour - 7) * 60 + startMin) * (48 / 60);
+    const top = ((startHour - 8) * 60 + startMin) * (48 / 60);
     const height = ((endHour - startHour) * 60 + (endMin - startMin)) * (48 / 60);
     
     return { top, height: Math.max(height, 24) };
@@ -287,13 +290,14 @@ export default function FieldsPage() {
                                 <div
                                   key={event.id}
                                   className={`
-                                    absolute left-0.5 right-0.5 rounded p-1 text-xs overflow-hidden
+                                    absolute left-0.5 right-0.5 rounded p-1 text-xs overflow-hidden cursor-pointer
                                     ${bgColor} ${textColor}
                                     ${hasConflict ? "ring-2 ring-destructive" : ""}
                                   `}
                                   style={{ top: `${top}px`, height: `${height}px` }}
                                   title={`${event.title}\n${event.startTime} - ${event.endTime}${event.team ? `\n${TEAM_LABELS[event.team]}` : ""}`}
                                   data-testid={`field-event-${event.id}`}
+                                  onClick={() => setSelectedEvent(event)}
                                 >
                                   <div className="font-medium truncate">{event.title}</div>
                                   {height > 30 && (
@@ -330,6 +334,55 @@ export default function FieldsPage() {
           </div>
         ))}
       </div>
+
+      {selectedEvent && (
+        <Dialog open={!!selectedEvent} onOpenChange={(open) => !open && setSelectedEvent(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{selectedEvent.title}</DialogTitle>
+              <DialogDescription>
+                {selectedEvent.date} · {selectedEvent.startTime} – {selectedEvent.endTime} ·{" "}
+                {selectedEvent.field ? FIELD_LABELS[selectedEvent.field] : "kein Platz gesetzt"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 text-sm">
+              {selectedEvent.team && (
+                <div>
+                  <span className="font-medium">Mannschaft: </span>
+                  <span>{TEAM_LABELS[selectedEvent.team]}</span>
+                </div>
+              )}
+              <div>
+                <span className="font-medium">Typ: </span>
+                <span>{EVENT_TYPE_LABELS[selectedEvent.type]}</span>
+              </div>
+              {selectedEvent.location && (
+                <div>
+                  <span className="font-medium">Ort: </span>
+                  <span>{selectedEvent.location}</span>
+                </div>
+              )}
+              {selectedEvent.competition && (
+                <div>
+                  <span className="font-medium">Wettbewerb: </span>
+                  <span>{selectedEvent.competition}</span>
+                </div>
+              )}
+              {selectedEvent.description && (
+                <div>
+                  <span className="font-medium">Beschreibung: </span>
+                  <span>{selectedEvent.description}</span>
+                </div>
+              )}
+              {selectedEvent.bfvImported && (
+                <Badge variant="outline" className="mt-2">
+                  BFV-importiert
+                </Badge>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

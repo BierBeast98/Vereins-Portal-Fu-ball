@@ -1,9 +1,10 @@
 import type { CalendarEvent, Field } from "@shared/schema";
-import { FIELDS, FIELD_LABELS } from "@shared/schema";
+import { FIELDS, FIELD_LABELS, TEAM_COLORS, EVENT_TYPE_COLORS } from "@shared/schema";
 import { useMemo } from "react";
 
 const WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-const HOURS = Array.from({ length: 16 }, (_, i) => i + 7);
+// Relevant time span for field planning: 08:00–20:00
+const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
 
 function formatDate(date: Date): string {
   const year = date.getFullYear();
@@ -22,7 +23,7 @@ function getEventPosition(event: CalendarEvent) {
   const endHour = parseInt(event.endTime.split(":")[0]);
   const endMin = parseInt(event.endTime.split(":")[1]);
 
-  const top = ((startHour - 7) * 60 + startMin) * (48 / 60);
+  const top = ((startHour - 8) * 60 + startMin) * (48 / 60);
   const height = ((endHour - startHour) * 60 + (endMin - startMin)) * (48 / 60);
 
   return { top, height: Math.max(height, 24) };
@@ -73,6 +74,8 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
                 {dates.map((date, i) => {
                   const dateStr = formatDate(date);
                   const isToday = dateStr === today;
+                  // JS: 0=So,1=Mo,... → wir wollen 0=Mo
+                  const weekdayIndex = (date.getDay() + 6) % 7;
                   return (
                     <div
                       key={i}
@@ -81,7 +84,7 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
                         ${isToday ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground"}
                       `}
                     >
-                      <div>{WEEKDAYS_SHORT[i % 7]}</div>
+                      <div>{WEEKDAYS_SHORT[weekdayIndex]}</div>
                       <div>{formatDateDE(date)}</div>
                     </div>
                   );
@@ -122,10 +125,17 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
 
                         {dayEvents.map((event) => {
                           const { top, height } = getEventPosition(event);
+                          const bgColor = event.team
+                            ? TEAM_COLORS[event.team] || EVENT_TYPE_COLORS[event.type]
+                            : EVENT_TYPE_COLORS[event.type];
+                          const textColor = event.team === "g-jugend" ? "text-gray-900" : "text-white";
                           return (
                             <div
                               key={event.id}
-                              className="absolute left-0.5 right-0.5 rounded-md p-1 text-xs overflow-hidden bg-primary text-primary-foreground/95 shadow-sm"
+                              className={`
+                                absolute left-0.5 right-0.5 rounded-md p-1 text-xs overflow-hidden shadow-sm
+                                ${bgColor} ${textColor}
+                              `}
                               style={{ top: `${top}px`, height: `${height}px` }}
                             >
                               <div className="font-medium truncate">{event.title}</div>

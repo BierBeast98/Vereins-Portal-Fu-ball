@@ -22,20 +22,32 @@ export default function HomePage() {
   const [fieldView, setFieldView] = useState<"a" | "b" | "both">("both");
   const [requestOpen, setRequestOpen] = useState(false);
 
-  const today = useMemo(() => new Date(), []);
-  const startDateStr = useMemo(() => {
-    const d = new Date(today);
-    return format(d, "yyyy-MM-dd");
-  }, [today]);
+  // Aktuelle Kalenderwoche als Default, Betreuer können zwischen Wochen wechseln
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+
+  const weekDates = useMemo(() => {
+    const date = currentDate;
+    const day = date.getDay();
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Montag als Wochenstart
+    const monday = new Date(date);
+    monday.setDate(diff);
+    const dates: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      dates.push(d);
+    }
+    return dates;
+  }, [currentDate]);
+
+  const startDateStr = format(weekDates[0], "yyyy-MM-dd");
+  const endDateStr = format(weekDates[6], "yyyy-MM-dd");
   const days = 7;
 
   const { data: fieldEvents = [] } = useQuery<CalendarEvent[]>({
-    queryKey: ["/api/public/calendar/fields", startDateStr, days],
+    queryKey: ["/api/public/calendar/fields", startDateStr, endDateStr],
     queryFn: async () => {
-      const end = new Date(startDateStr + "T00:00:00");
-      end.setDate(end.getDate() + (days - 1));
-      const endStr = format(end, "yyyy-MM-dd");
-      const res = await fetch(`/api/public/calendar/fields?startDate=${startDateStr}&endDate=${endStr}`);
+      const res = await fetch(`/api/public/calendar/fields?startDate=${startDateStr}&endDate=${endDateStr}`);
       if (!res.ok) throw new Error("Failed to fetch field events");
       return res.json();
     },
@@ -76,7 +88,7 @@ export default function HomePage() {
         </Link>
         <div className="max-w-4xl mx-auto text-center">
           <div className="flex items-center justify-center mb-6">
-            <div className="h-20 w-20 rounded-xl bg-primary-foreground/10 flex items-center justify-center overflow-hidden shadow-lg">
+            <div className="h-20 w-20 rounded-xl bg-white flex items-center justify-center overflow-hidden shadow-lg">
               <img
                 src={tsvLogo}
                 alt="TSV Greding Logo"
@@ -161,7 +173,10 @@ export default function HomePage() {
             <div>
               <h2 className="text-2xl font-semibold">Platzbelegung (Betreuer-Ansicht)</h2>
               <p className="text-sm text-muted-foreground">
-                Übersicht der nächsten 7 Tage für A- und B-Platz. Spiele und bestätigte Trainings werden angezeigt.
+                Übersicht der aktuellen Kalenderwoche für A- und B-Platz. Spiele und bestätigte Trainings werden angezeigt.
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Woche {format(weekDates[0], "II")} · {format(weekDates[0], "dd.MM.")} – {format(weekDates[6], "dd.MM.yyyy")}
               </p>
             </div>
             <div className="flex flex-col items-stretch gap-3 md:items-end">
@@ -194,6 +209,37 @@ export default function HomePage() {
                 Platz B
               </button>
             </div>
+              <div className="inline-flex rounded-md shadow-sm border bg-background self-start md:self-end" role="group">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-xs md:text-sm font-medium border-r text-muted-foreground hover:bg-muted"
+                  onClick={() => setCurrentDate(new Date())}
+                >
+                  Diese Woche
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-xs md:text-sm font-medium border-r text-muted-foreground hover:bg-muted"
+                  onClick={() => {
+                    const d = new Date(currentDate);
+                    d.setDate(d.getDate() - 7);
+                    setCurrentDate(d);
+                  }}
+                >
+                  &lt;
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-xs md:text-sm font-medium text-muted-foreground hover:bg-muted"
+                  onClick={() => {
+                    const d = new Date(currentDate);
+                    d.setDate(d.getDate() + 7);
+                    setCurrentDate(d);
+                  }}
+                >
+                  &gt;
+                </button>
+              </div>
               <Button variant="default" size="sm" onClick={() => setRequestOpen(true)}>
                 Training vorschlagen
               </Button>

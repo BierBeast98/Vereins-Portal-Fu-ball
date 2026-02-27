@@ -92,6 +92,7 @@ export const eventRequestsTable = pgTable("event_requests", {
   type: varchar("type", { length: 50 }).notNull().default("training"),
   title: varchar("title", { length: 500 }).notNull(),
   pitch: varchar("pitch", { length: 20 }).notNull(), // a-platz, b-platz
+  team: varchar("team", { length: 50 }), // optional: TEAMS key
   startAt: timestamp("start_at", { withTimezone: false }).notNull(),
   endAt: timestamp("end_at", { withTimezone: false }).notNull(),
   note: text("note"),
@@ -440,6 +441,7 @@ export interface EventRequest {
   type: EventRequestType;
   title: string;
   pitch: Field;
+  team?: Team;
   startAt: string;
   endAt: string;
   note?: string;
@@ -455,6 +457,7 @@ export const insertEventRequestSchema = z.object({
   type: z.enum(EVENT_REQUEST_TYPES).default("training"),
   title: z.string().min(1, "Titel ist erforderlich").default("Training"),
   pitch: z.enum(FIELDS),
+  team: z.enum(TEAMS).optional(),
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   note: z.string().optional(),

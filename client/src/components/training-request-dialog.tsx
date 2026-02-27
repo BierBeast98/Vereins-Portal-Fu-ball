@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { FIELDS, FIELD_LABELS, type Field } from "@shared/schema";
+import { FIELDS, FIELD_LABELS, TEAMS, TEAM_LABELS, type Field, type Team } from "@shared/schema";
 
 interface TrainingRequestDialogProps {
   open: boolean;
@@ -27,64 +27,79 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
   const [title, setTitle] = useState("Training");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [team, setTeam] = useState<Team | undefined>(undefined);
+  const [repeatWeekly, setRepeatWeekly] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState("");
 
   const mutation = useMutation({
     mutationFn: async () => {
       if (!date || !startTime) {
         throw new Error("Datum und Startzeit sind erforderlich");
       }
+      if (repeatWeekly && !repeatUntil) {
+        throw new Error("Bitte Enddatum für die Wiederholung angeben");
+      }
       setError(null);
 
       const [h, m] = startTime.split(":").map(Number);
-      const startAt = new Date(date + "T00:00:00");
-      startAt.setHours(h, m, 0, 0);
-      const endAt = new Date(startAt);
-      endAt.setMinutes(endAt.getMinutes() + duration);
 
-      const body = {
-        createdBy: name || undefined,
-        type: "training",
-        title,
-        pitch: field,
-        startAt: startAt.toISOString(),
-        endAt: endAt.toISOString(),
-        note: note || undefined,
-      };
+      // Alle gewünschten Termine (einzeln oder wöchentlich wiederholt) berechnen
+      const firstDate = new Date(date + "T00:00:00");
+      const untilDate = repeatWeekly && repeatUntil ? new Date(repeatUntil + "T23:59:59") : firstDate;
 
-      const res = await fetch("/api/public/event-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.status === 409) {
-        const data = await res.json();
-        setError(data?.message || "Konflikt mit bestehenden Terminen");
-        throw new Error("CONFLICT");
+      const dates: Date[] = [];
+      let cursor = new Date(firstDate);
+      while (cursor <= untilDate) {
+        dates.push(new Date(cursor));
+        if (!repeatWeekly) break;
+        cursor.setDate(cursor.getDate() + 7);
       }
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "Vorschlag konnte nicht gespeichert werden");
+
+      const created: unknown[] = [];
+
+      for (const d of dates) {
+        const startAt = new Date(d);
+        startAt.setHours(h, m, 0, 0);
+        const endAt = new Date(startAt);
+        endAt.setMinutes(endAt.getMinutes() + duration);
+
+        const body = {
+          createdBy: name || undefined,
+          type: "training",
+          title,
+          pitch: field,
+          team,
+          startAt: startAt.toISOString(),
+          endAt: endAt.toISOString(),
+          note: note || undefined,
+        };
+
+        const res = await fetch("/api/public/event-requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Vorschlag konnte nicht gespeichert werden");
+        }
+        created.push(await res.json());
       }
-      return res.json();
+
+      return created;
     },
     onSuccess: () => {
       toast({
-        title: "Vorschlag gespeichert",
-        description: "Deine Trainingszeit wurde als Vorschlag gespeichert und muss vom Admin freigegeben werden.",
+        title: repeatWeekly ? "Vorschläge gespeichert" : "Vorschlag gespeichert",
+        description: repeatWeekly
+          ? "Deine wiederkehrenden Trainingszeiten wurden als Vorschläge gespeichert und müssen vom Admin freigegeben werden."
+          : "Deine Trainingszeit wurde als Vorschlag gespeichert und muss vom Admin freigegeben werden.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
       onOpenChange(false);
       setError(null);
     },
     onError: (err: any) => {
-      if (err.message === "CONFLICT") {
-        toast({
-          title: "Konflikt mit bestehendem Termin",
-          description: "Bitte wähle eine andere Zeit ohne Überschneidung.",
-          variant: "destructive",
-        });
-        return;
-      }
       toast({
         title: "Fehler",
         description: err.message ?? "Vorschlag konnte nicht gespeichert werden.",
@@ -174,6 +189,22 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
             </div>
           </div>
           <div className="space-y-2">
+            <Label>Mannschaft (optional)</Label>
+            <Select value={team ?? "_none"} onValueChange={(v) => setTeam(v === "_none" ? undefined : (v as Team))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Mannschaft wählen" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">Keine Angabe</SelectItem>
+                {TEAMS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {TEAM_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="note">Notiz (optional)</Label>
             <Textarea
               id="note"
@@ -181,6 +212,33 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
               onChange={(e) => setNote(e.target.value)}
               placeholder="z. B. Mannschaft, Schwerpunkte, besondere Hinweise"
             />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex items-center gap-2">
+              <input
+                id="repeatWeekly"
+                type="checkbox"
+                className="h-4 w-4 rounded border border-input"
+                checked={repeatWeekly}
+                onChange={(e) => setRepeatWeekly(e.target.checked)}
+              />
+              <Label htmlFor="repeatWeekly" className="text-sm">
+                Wöchentlich wiederholen
+              </Label>
+            </div>
+            {repeatWeekly && (
+              <div className="space-y-2">
+                <Label htmlFor="repeatUntil">bis (inkl.)</Label>
+                <Input
+                  id="repeatUntil"
+                  type="date"
+                  value={repeatUntil}
+                  onChange={(e) => setRepeatUntil(e.target.value)}
+                  required={repeatWeekly}
+                />
+              </div>
+            )}
           </div>
 
           {error && (
