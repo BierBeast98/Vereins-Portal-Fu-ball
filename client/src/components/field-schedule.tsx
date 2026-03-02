@@ -87,7 +87,7 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
             {/* Grid nutzt volle Breite: 1 Spalte Zeit + 7 Tage, alle Tage gleich breit */}
             <div
               className="grid gap-0.5 mb-1 w-full"
-              style={{ gridTemplateColumns: "auto repeat(7, minmax(0, 1fr))" }}
+              style={{ gridTemplateColumns: `auto repeat(${days}, minmax(0, 1fr))` }}
             >
               <div className="text-[10px] text-muted-foreground py-1 pr-1 text-right" />
               {dates.map((date, i) => {
@@ -112,7 +112,7 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
             <div className="relative w-full">
               <div
                 className="grid gap-0.5 w-full"
-                style={{ gridTemplateColumns: "auto repeat(7, minmax(0, 1fr))" }}
+                style={{ gridTemplateColumns: `auto repeat(${days}, minmax(0, 1fr))` }}
               >
                 <div className="space-y-0 flex flex-col">
                   {HOURS.map((hour) => (

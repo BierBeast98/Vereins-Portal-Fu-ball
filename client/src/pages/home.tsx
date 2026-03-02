@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import type { Campaign, CalendarEvent, Field } from "@shared/schema";
+import type { Campaign } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,9 +10,8 @@ import { Calendar, ArrowRight, Lock } from "lucide-react";
 import { format, parseISO, isPast, isFuture, isWithinInterval } from "date-fns";
 import { de } from "date-fns/locale";
 import tsvLogo from "@/TSV_Greding_logo_transparent.png";
-import { FieldSchedule } from "@/components/field-schedule";
 import { TrainingRequestDialog } from "@/components/training-request-dialog";
-import { FIELDS } from "@shared/schema";
+import { MobileFieldCalendar } from "@/components/mobile-field-calendar";
 
 export default function HomePage() {
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
@@ -22,36 +21,7 @@ export default function HomePage() {
   const [fieldView, setFieldView] = useState<"a" | "b">("a");
   const [requestOpen, setRequestOpen] = useState(false);
 
-  // Aktuelle Kalenderwoche als Default, Betreuer können zwischen Wochen wechseln
-  const [currentDate, setCurrentDate] = useState(() => new Date());
-
-  const weekDates = useMemo(() => {
-    const date = currentDate;
-    const day = date.getDay();
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Montag als Wochenstart
-    const monday = new Date(date);
-    monday.setDate(diff);
-    const dates: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      dates.push(d);
-    }
-    return dates;
-  }, [currentDate]);
-
-  const startDateStr = format(weekDates[0], "yyyy-MM-dd");
-  const endDateStr = format(weekDates[6], "yyyy-MM-dd");
-  const days = 7;
-
-  const { data: fieldEvents = [] } = useQuery<CalendarEvent[]>({
-    queryKey: ["/api/public/calendar/fields", startDateStr, endDateStr],
-    queryFn: async () => {
-      const res = await fetch(`/api/public/calendar/fields?startDate=${startDateStr}&endDate=${endDateStr}`);
-      if (!res.ok) throw new Error("Failed to fetch field events");
-      return res.json();
-    },
-  });
+  const startDateStr = format(new Date(), "yyyy-MM-dd");
 
   const getCampaignStatus = (campaign: Campaign) => {
     const now = new Date();
@@ -169,81 +139,15 @@ export default function HomePage() {
         )}
 
         <section className="pt-8 border-t">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-2xl font-semibold">Platzbelegung (Betreuer-Ansicht)</h2>
-              <p className="text-sm text-muted-foreground">
-                Übersicht der aktuellen Kalenderwoche. Wechsle zwischen A- und B-Platz. Spiele und bestätigte Trainings werden angezeigt.
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Woche {format(weekDates[0], "II")} · {format(weekDates[0], "dd.MM.")} – {format(weekDates[6], "dd.MM.yyyy")}
-              </p>
-            </div>
-            <div className="flex flex-col items-stretch gap-3 md:items-end">
-              <div className="inline-flex rounded-md shadow-sm border bg-background self-start md:self-end" role="group" aria-label="Platz wählen">
-                <button
-                  type="button"
-                  className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-l-md border-r ${
-                    fieldView === "a" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                  }`}
-                  onClick={() => setFieldView("a")}
-                >
-                  A-Platz
-                </button>
-                <button
-                  type="button"
-                  className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-r-md ${
-                    fieldView === "b" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                  }`}
-                  onClick={() => setFieldView("b")}
-                >
-                  B-Platz
-                </button>
-              </div>
-              <div className="inline-flex rounded-md shadow-sm border bg-background self-start md:self-end" role="group">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 text-xs md:text-sm font-medium border-r text-muted-foreground hover:bg-muted"
-                  onClick={() => setCurrentDate(new Date())}
-                >
-                  Diese Woche
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 text-xs md:text-sm font-medium border-r text-muted-foreground hover:bg-muted"
-                  onClick={() => {
-                    const d = new Date(currentDate);
-                    d.setDate(d.getDate() - 7);
-                    setCurrentDate(d);
-                  }}
-                >
-                  &lt;
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 text-xs md:text-sm font-medium text-muted-foreground hover:bg-muted"
-                  onClick={() => {
-                    const d = new Date(currentDate);
-                    d.setDate(d.getDate() + 7);
-                    setCurrentDate(d);
-                  }}
-                >
-                  &gt;
-                </button>
-              </div>
-              <Button variant="default" size="sm" onClick={() => setRequestOpen(true)}>
-                Training vorschlagen
-              </Button>
-            </div>
-          </div>
-
-          <FieldSchedule
-            events={fieldEvents}
-            startDate={startDateStr}
-            days={days}
-            fields={fieldView === "a" ? (["a-platz"] as Field[]) : (["b-platz"] as Field[])}
+          <h2 className="text-2xl font-semibold mb-1">Platzbelegung</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Spiele und Trainings auf {fieldView === "a" ? "A-Platz" : "B-Platz"}
+          </p>
+          <MobileFieldCalendar
+            fieldView={fieldView}
+            onFieldChange={setFieldView}
+            onRequestTraining={() => setRequestOpen(true)}
           />
-
           <TrainingRequestDialog
             open={requestOpen}
             onOpenChange={setRequestOpen}
