@@ -9,12 +9,32 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FIELD_LABELS, FIELDS, TEAM_LABELS } from "@shared/schema";
+import { FIELD_LABELS, FIELDS, TEAMS, TEAM_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+
+const TZ_BERLIN = "Europe/Berlin";
 
 function formatDateTime(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+  return d.toLocaleString("de-DE", { timeZone: TZ_BERLIN, dateStyle: "short", timeStyle: "short" });
+}
+
+/** ISO string → "YYYY-MM-DDTHH:mm" in Europe/Berlin for datetime-local inputs */
+function isoToDatetimeLocalBerlin(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(0, 16);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ_BERLIN,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(d)
+    .reduce((acc, p) => ({ ...acc, [p.type]: p.value }), {} as Record<string, string>);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour.padStart(2, "0")}:${parts.minute.padStart(2, "0")}`;
 }
 
 interface RequestGroup {
@@ -79,7 +99,7 @@ export default function RequestsPage() {
   const approveMutation = useMutation({
     mutationFn: async (input: {
       group: RequestGroup;
-      payload: { title: string; pitch: Field; start: string; end: string; adminNote?: string };
+      payload: { title: string; pitch: Field; start: string; end: string; team?: Team; adminNote?: string };
     }) => {
       const { group, payload } = input;
       if (!group) throw new Error("No selection");
@@ -90,6 +110,11 @@ export default function RequestsPage() {
         throw new Error("Ungültige Start- oder Endzeit");
       }
       const durationMs = baseEnd.getTime() - baseStart.getTime();
+
+      // Gemeinsame Serien-ID für alle Kalender-Events der Serie
+      const recurringGroupId =
+        (crypto as any)?.randomUUID?.() ??
+        Math.random().toString(36).slice(2) + Date.now().toString(36);
 
       for (const req of group.items) {
         const dateOnly = req.startAt.slice(0, 10); // YYYY-MM-DD
@@ -102,7 +127,9 @@ export default function RequestsPage() {
           pitch: payload.pitch,
           startAt: start.toISOString(),
           endAt: end.toISOString(),
+          recurringGroupId,
         };
+        if (payload.team !== undefined) body.team = payload.team;
         if (payload.adminNote) body.adminNote = payload.adminNote;
 
         const res = await fetch(`/api/admin/event-requests/${req.id}/approve`, {
@@ -157,6 +184,53 @@ export default function RequestsPage() {
     },
     onError: (err: any) => {
       toast({ title: "Fehler", description: err.message ?? "Ablehnung fehlgeschlagen.", variant: "destructive" });
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (input: {
+      group: RequestGroup;
+      payload: { title: string; pitch: Field; start: string; end: string; team?: Team };
+    }) => {
+      const { group, payload } = input;
+      if (!group) throw new Error("No selection");
+      const baseStart = new Date(payload.start);
+      const baseEnd = new Date(payload.end);
+      if (isNaN(baseStart.getTime()) || isNaN(baseEnd.getTime())) {
+        throw new Error("Ungültige Start- oder Endzeit");
+      }
+      const durationMs = baseEnd.getTime() - baseStart.getTime();
+      for (const req of group.items) {
+        const dateOnly = req.startAt.slice(0, 10);
+        const startAt = new Date(dateOnly + "T00:00:00");
+        startAt.setHours(baseStart.getHours(), baseStart.getMinutes(), 0, 0);
+        const endAt = new Date(startAt.getTime() + durationMs);
+        const body: Record<string, unknown> = {
+          title: payload.title,
+          pitch: payload.pitch,
+          startAt: startAt.toISOString(),
+          endAt: endAt.toISOString(),
+        };
+        if (payload.team !== undefined) body.team = payload.team === "_none" ? null : payload.team;
+        const res = await fetch(`/api/admin/event-requests/${req.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Speichern fehlgeschlagen");
+        }
+      }
+      return true;
+    },
+    onSuccess: () => {
+      toast({ title: "Gespeichert", description: "Anfrage(n) wurden aktualisiert." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Fehler", description: err.message ?? "Speichern fehlgeschlagen.", variant: "destructive" });
     },
   });
 
@@ -244,8 +318,10 @@ export default function RequestsPage() {
         <RequestDialog
           group={selectedGroup}
           onClose={() => setSelectedGroup(null)}
+          onSave={(payload) => saveMutation.mutate({ group: selectedGroup, payload })}
           onApprove={(payload) => approveMutation.mutate({ group: selectedGroup, payload })}
           onReject={(note) => rejectMutation.mutate({ group: selectedGroup, adminNote: note })}
+          isSaving={saveMutation.isPending}
         />
       )}
     </div>
@@ -255,24 +331,36 @@ export default function RequestsPage() {
 interface RequestDialogProps {
   group: RequestGroup;
   onClose: () => void;
-  onApprove: (payload: { title: string; pitch: Field; start: string; end: string; adminNote?: string }) => void;
+  onSave: (payload: { title: string; pitch: Field; start: string; end: string; team?: Team | "_none" }) => void;
+  onApprove: (payload: { title: string; pitch: Field; start: string; end: string; team?: Team; adminNote?: string }) => void;
   onReject: (note?: string) => void;
+  isSaving?: boolean;
 }
 
-function RequestDialog({ group, onClose, onApprove, onReject }: RequestDialogProps) {
+function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving = false }: RequestDialogProps) {
   const { head, count, items } = group;
   const [title, setTitle] = useState(head.title);
   const [pitch, setPitch] = useState<Field>(head.pitch);
-  const [start, setStart] = useState(head.startAt.slice(0, 16));
-  const [end, setEnd] = useState(head.endAt.slice(0, 16));
+  const [start, setStart] = useState(() => isoToDatetimeLocalBerlin(head.startAt));
+  const [end, setEnd] = useState(() => isoToDatetimeLocalBerlin(head.endAt));
+  const [team, setTeam] = useState<Team | "_none">((head.team as Team) || "_none");
   const [adminNote, setAdminNote] = useState(head.adminNote ?? "");
+
+  const savePayload = () => ({
+    title,
+    pitch,
+    start,
+    end,
+    team: team === "_none" ? undefined : team,
+  });
+
+  const handleSave = () => {
+    onSave({ ...savePayload(), team: team });
+  };
 
   const handleApprove = () => {
     onApprove({
-      title,
-      pitch,
-      start,
-      end,
+      ...savePayload(),
       adminNote: adminNote || undefined,
     });
   };
@@ -288,9 +376,18 @@ function RequestDialog({ group, onClose, onApprove, onReject }: RequestDialogPro
           <DialogTitle>Vorschlag prüfen</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="text-sm text-muted-foreground">
-            Angelegt von {head.createdBy || "unbekannt"} am{" "}
-            {formatDateTime(head.createdAt)}
+          <div className="text-sm text-muted-foreground space-y-1">
+            <div>
+              Angelegt von {head.createdBy || "unbekannt"} am{" "}
+              {formatDateTime(head.createdAt)}
+            </div>
+            {count > 1 && (
+              <div>
+                Serie mit {count} Terminen ·{" "}
+                {new Date(items[0].startAt).toLocaleDateString("de-DE", { timeZone: TZ_BERLIN })} –{" "}
+                {new Date(items[items.length - 1].startAt).toLocaleDateString("de-DE", { timeZone: TZ_BERLIN })}
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-2">
@@ -334,15 +431,25 @@ function RequestDialog({ group, onClose, onApprove, onReject }: RequestDialogPro
             </div>
           </div>
           <div className="space-y-2">
+            <Label>Mannschaft</Label>
+            <Select value={team} onValueChange={(v) => setTeam(v as Team | "_none")}>
+              <SelectTrigger>
+                <SelectValue placeholder="Keine" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">Keine</SelectItem>
+                {TEAMS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {TEAM_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             <Label>Notiz Betreuer</Label>
             <Textarea value={head.note ?? ""} readOnly />
           </div>
-          {head.team && (
-            <div className="space-y-2 text-sm">
-              <span className="font-medium">Mannschaft: </span>
-              <span>{TEAM_LABELS[head.team as Team]}</span>
-            </div>
-          )}
           <div className="space-y-2">
             <Label htmlFor="adminNote">Admin-Notiz (optional)</Label>
             <Textarea
@@ -352,14 +459,17 @@ function RequestDialog({ group, onClose, onApprove, onReject }: RequestDialogPro
             />
           </div>
         </div>
-        <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={onClose}>
+        <DialogFooter className="mt-4 flex-wrap gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isSaving}>
             Schließen
           </Button>
-          <Button variant="destructive" onClick={handleReject}>
+          <Button variant="secondary" onClick={handleSave} disabled={isSaving}>
+            {isSaving ? "Speichern…" : "Speichern"}
+          </Button>
+          <Button variant="destructive" onClick={handleReject} disabled={isSaving}>
             Ablehnen{count > 1 ? " (Serie)" : ""}
           </Button>
-          <Button onClick={handleApprove}>
+          <Button onClick={handleApprove} disabled={isSaving}>
             Freigeben &amp; eintragen{count > 1 ? " (Serie)" : ""}
           </Button>
         </DialogFooter>

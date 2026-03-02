@@ -34,7 +34,10 @@ import {
   EVENT_TYPE_LABELS, 
   EVENT_TYPE_COLORS,
   TEAMS, 
-  TEAM_LABELS, 
+  TEAM_LABELS,
+  getTeamEventColorClass,
+  TEAM_COLORS_SPIEL,
+  TEAM_COLORS_TRAINING, 
   FIELDS, 
   FIELD_LABELS 
 } from "@shared/schema";
@@ -243,7 +246,7 @@ function EventDialog({
       title: formData.title,
       type: formData.type,
       team: formData.team,
-      field: formData.field,
+      field: formData.field ?? null,
       date: formData.date,
       startTime: formData.startTime,
       endTime: formData.endTime,
@@ -279,9 +282,9 @@ function EventDialog({
   }, [formData.isRecurring, formData.date, formData.recurringEndDate]);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
+    <form onSubmit={handleSubmit} className="space-y-4 min-w-0 overflow-hidden flex flex-col">
+      <div className="grid gap-4 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
+        <div className="col-span-2 min-w-0">
           <Label htmlFor="title">Titel</Label>
           <Input
             id="title"
@@ -293,7 +296,7 @@ function EventDialog({
           />
         </div>
 
-        <div>
+        <div className="min-w-0">
           <Label htmlFor="type">Terminart</Label>
           <Select
             value={formData.type}
@@ -312,7 +315,7 @@ function EventDialog({
           </Select>
         </div>
 
-        <div>
+        <div className="min-w-0">
           <Label htmlFor="team">Mannschaft</Label>
           <Select
             value={formData.team || "none"}
@@ -332,7 +335,7 @@ function EventDialog({
           </Select>
         </div>
 
-        <div>
+        <div className="min-w-0">
           <Label htmlFor="field">Platz</Label>
           <Select
             value={formData.field || "none"}
@@ -352,7 +355,7 @@ function EventDialog({
           </Select>
         </div>
 
-        <div>
+        <div className="min-w-0">
           <Label htmlFor="date">Datum</Label>
           <Input
             id="date"
@@ -364,7 +367,7 @@ function EventDialog({
           />
         </div>
 
-        <div>
+        <div className="min-w-0">
           <Label htmlFor="startTime">Startzeit</Label>
           <Input
             id="startTime"
@@ -376,7 +379,7 @@ function EventDialog({
           />
         </div>
 
-        <div>
+        <div className="min-w-0">
           <Label htmlFor="endTime">Endzeit</Label>
           <Input
             id="endTime"
@@ -439,7 +442,7 @@ function EventDialog({
               <Label htmlFor="isHomeGame">Heimspiel</Label>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <Label htmlFor="opponent">Gegner</Label>
               <Input
                 id="opponent"
@@ -450,7 +453,7 @@ function EventDialog({
               />
             </div>
 
-            <div>
+            <div className="min-w-0">
               <Label htmlFor="competition">Wettbewerb</Label>
               <Input
                 id="competition"
@@ -476,7 +479,7 @@ function EventDialog({
           </div>
         )}
 
-        <div className="col-span-2">
+        <div className="col-span-2 min-w-0">
           <Label htmlFor="description">Beschreibung</Label>
           <Textarea
             id="description"
@@ -487,6 +490,18 @@ function EventDialog({
             data-testid="input-description"
           />
         </div>
+
+        {/* Rohdaten vom BFV-Import (nur bei BFV-Events mit gespeichertem Payload) */}
+        {event?.bfvImported && event?.rawPayload != null && (
+          <div className="col-span-2 min-w-0 rounded-lg border bg-muted/30 p-3">
+            <Label className="text-muted-foreground font-normal">Rohdaten vom BFV (vor Verarbeitung)</Label>
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-2 text-xs" data-testid="raw-payload">
+              {typeof event.rawPayload === "object"
+                ? JSON.stringify(event.rawPayload, null, 2)
+                : String(event.rawPayload)}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* Show indicator for recurring events */}
@@ -497,7 +512,7 @@ function EventDialog({
         </div>
       )}
 
-      <div className="flex justify-between gap-2 pt-4">
+      <div className="flex justify-between gap-2 pt-4 flex-shrink-0 pb-2">
         {event && (
           <div className="flex gap-2">
             {event.recurringGroupId ? (
@@ -511,7 +526,7 @@ function EventDialog({
                   data-testid="button-delete-event"
                 >
                   <Trash2 className="h-4 w-4 mr-1" />
-                  Nur diesen
+                  Nur diesen löschen
                 </Button>
                 <Button
                   type="button"
@@ -552,7 +567,7 @@ function EventDialog({
                   title: formData.title,
                   type: formData.type,
                   team: formData.team,
-                  field: formData.field,
+                  field: formData.field ?? null,
                   date: formData.date,
                   startTime: formData.startTime,
                   endTime: formData.endTime,
@@ -565,7 +580,7 @@ function EventDialog({
                 disabled={isPending} 
                 data-testid="button-save-event"
               >
-                Nur diesen
+                Nur diesen speichern
               </Button>
               <Button 
                 type="button"
@@ -573,7 +588,7 @@ function EventDialog({
                   title: formData.title,
                   type: formData.type,
                   team: formData.team,
-                  field: formData.field,
+                  field: formData.field ?? null,
                   startTime: formData.startTime,
                   endTime: formData.endTime,
                   isHomeGame: formData.type === "spiel" ? formData.isHomeGame : undefined,
@@ -645,6 +660,7 @@ type ViewMode = "year" | "month" | "day";
 export default function CalendarPage() {
   const { toast } = useToast();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [yearHalf, setYearHalf] = useState<1 | 2>(() => (new Date().getMonth() < 6 ? 1 : 2));
   const [viewMode, setViewMode] = useState<ViewMode>("year");
   const [selectedMonth, setSelectedMonth] = useState<number>(0);
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
@@ -761,35 +777,22 @@ export default function CalendarPage() {
   const today = formatDate(new Date());
   const todayDate = new Date();
 
+  const typeColors: Record<EventType, string> = {
+    spiel: "bg-blue-500 text-white",
+    training: "bg-green-500 text-white",
+    turnier: "bg-purple-500 text-white",
+    vereinsevent: "bg-orange-500 text-white",
+    platzsperrung: "bg-red-500 text-white",
+    sonstiges: "bg-gray-500 text-white",
+  };
+
   const getEventColorClass = (event: CalendarEvent): string => {
-    // Use team color if team is specified, otherwise fall back to event type color
-    if (event.team) {
-      const teamColors: Record<string, string> = {
-        "herren": "bg-blue-600 text-white",
-        "herren2": "bg-blue-400 text-white",
-        "damen": "bg-pink-500 text-white",
-        "a-jugend": "bg-emerald-600 text-white",
-        "b-jugend": "bg-emerald-500 text-white",
-        "c-jugend": "bg-teal-500 text-white",
-        "d-jugend": "bg-cyan-500 text-white",
-        "e-jugend": "bg-amber-500 text-white",
-        "f-jugend": "bg-orange-400 text-white",
-        "g-jugend": "bg-yellow-500 text-gray-900",
-        "alte-herren": "bg-slate-500 text-white",
-      };
-      return teamColors[event.team] || "bg-gray-500 text-white";
+    const team = event.team;
+    if (team && TEAMS.includes(team)) {
+      const teamClass = getTeamEventColorClass(team, event.type);
+      if (teamClass) return teamClass;
     }
-    
-    // Fall back to event type colors for events without a team
-    const typeColors: Record<EventType, string> = {
-      spiel: "bg-blue-500 text-white",
-      training: "bg-green-500 text-white",
-      turnier: "bg-purple-500 text-white",
-      vereinsevent: "bg-orange-500 text-white",
-      platzsperrung: "bg-red-500 text-white",
-      sonstiges: "bg-gray-500 text-white",
-    };
-    return typeColors[event.type];
+    return typeColors[event.type] ?? typeColors.sonstiges;
   };
 
   const getTeamShortLabel = (team?: string): string => {
@@ -826,6 +829,7 @@ export default function CalendarPage() {
   const renderYearView = () => {
     const monthsFirstHalf = [0, 1, 2, 3, 4, 5];
     const monthsSecondHalf = [6, 7, 8, 9, 10, 11];
+    const monthsToShow = yearHalf === 1 ? monthsFirstHalf : monthsSecondHalf;
 
     const renderMonthColumn = (month: number) => {
       const days = getDaysInMonth(currentYear, month);
@@ -903,10 +907,7 @@ export default function CalendarPage() {
     return (
       <div className="space-y-4">
         <div className="flex gap-1 overflow-x-auto">
-          {monthsFirstHalf.map(renderMonthColumn)}
-        </div>
-        <div className="flex gap-1 overflow-x-auto">
-          {monthsSecondHalf.map(renderMonthColumn)}
+          {monthsToShow.map(renderMonthColumn)}
         </div>
       </div>
     );
@@ -1144,7 +1145,7 @@ export default function CalendarPage() {
                 Neuer Termin
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[95vh] overflow-y-auto overflow-x-hidden pb-8">
               <DialogHeader>
                 <DialogTitle>
                   {editingEvent ? "Termin bearbeiten" : "Neuer Termin"}
@@ -1164,7 +1165,7 @@ export default function CalendarPage() {
       </div>
 
       {viewMode === "year" && (
-        <div className="flex items-center justify-center gap-4 mb-4">
+        <div className="flex flex-wrap items-center justify-center gap-4 mb-4">
           <Button
             variant="outline"
             size="icon"
@@ -1182,6 +1183,27 @@ export default function CalendarPage() {
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
+          <span className="w-px h-8 bg-border hidden sm:block" aria-hidden />
+          <div className="flex rounded-md border border-input overflow-hidden" role="group" aria-label="Jahreshälfte">
+            <Button
+              variant={yearHalf === 1 ? "default" : "ghost"}
+              size="sm"
+              className="rounded-none border-0"
+              onClick={() => setYearHalf(1)}
+              data-testid="button-half-1"
+            >
+              1. Halbjahr (Jan–Jun)
+            </Button>
+            <Button
+              variant={yearHalf === 2 ? "default" : "ghost"}
+              size="sm"
+              className="rounded-none border-0"
+              onClick={() => setYearHalf(2)}
+              data-testid="button-half-2"
+            >
+              2. Halbjahr (Jul–Dez)
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1218,35 +1240,18 @@ export default function CalendarPage() {
       {viewMode === "month" && renderMonthView()}
       {viewMode === "day" && renderDayView()}
       
-      {/* Team color legend */}
+      {/* Mannschaftsfarben (Legende): Kräftig = Spiel, Hell mit Rand = Training */}
       <div className="mt-6 pt-4 border-t">
         <h4 className="text-sm font-medium mb-2 text-muted-foreground">Mannschaftsfarben</h4>
+        <p className="text-xs text-muted-foreground mb-2">Kräftig = Spiel · Hell mit Rand = Training</p>
         <div className="flex flex-wrap gap-2">
-          {TEAMS.map((team) => {
-            const teamColors: Record<string, string> = {
-              "herren": "bg-blue-600",
-              "herren2": "bg-blue-400",
-              "damen": "bg-pink-500",
-              "a-jugend": "bg-emerald-600",
-              "b-jugend": "bg-emerald-500",
-              "c-jugend": "bg-teal-500",
-              "d-jugend": "bg-cyan-500",
-              "e-jugend": "bg-amber-500",
-              "f-jugend": "bg-orange-400",
-              "g-jugend": "bg-yellow-500",
-              "alte-herren": "bg-slate-500",
-            };
-            const textColor = team === "g-jugend" ? "text-gray-900" : "text-white";
-            return (
-              <Badge 
-                key={team} 
-                className={`${teamColors[team]} ${textColor}`}
-                data-testid={`legend-team-${team}`}
-              >
-                {TEAM_LABELS[team]}
-              </Badge>
-            );
-          })}
+          {TEAMS.map((team) => (
+            <span key={team} className="inline-flex items-center gap-1">
+              <Badge className={TEAM_COLORS_SPIEL[team]} data-testid={`legend-spiel-${team}`}>Spiel</Badge>
+              <Badge className={TEAM_COLORS_TRAINING[team]} data-testid={`legend-training-${team}`}>Training</Badge>
+              <span className="text-xs text-muted-foreground mr-2">{TEAM_LABELS[team]}</span>
+            </span>
+          ))}
         </div>
       </div>
     </div>

@@ -39,6 +39,10 @@ async function main() {
       );
     `);
     await pool.query(`
+      ALTER TABLE event_requests
+      ADD COLUMN IF NOT EXISTS team varchar(50);
+    `);
+    await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_event_requests_status_start
       ON event_requests (status, start_at);
     `);

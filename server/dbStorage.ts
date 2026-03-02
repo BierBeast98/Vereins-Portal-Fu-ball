@@ -42,7 +42,9 @@ export interface IDbStorage {
   getBfvCalendarEventBySourceId(externalId: string): Promise<CalendarEvent | undefined>;
   getBfvCalendarEventByStableKey(stableKey: string): Promise<CalendarEvent | undefined>;
   getActiveBfvCalendarEvents(): Promise<CalendarEvent[]>;
-  updateCalendarEventBfv(id: string, data: { lastSeenAt?: Date; archivedAt?: Date; date?: string; startTime?: string; endTime?: string; title?: string; location?: string; competition?: string; field?: string | null; rawPayload?: unknown }): Promise<CalendarEvent | undefined>;
+  updateCalendarEventBfv(id: string, data: { lastSeenAt?: Date; archivedAt?: Date; date?: string; startTime?: string; endTime?: string; title?: string; location?: string; competition?: string; field?: string | null; team?: string | null; rawPayload?: unknown }): Promise<CalendarEvent | undefined>;
+  /** Set field to null for all events where type=spiel and isHomeGame=false (one-time cleanup). Returns count updated. */
+  clearFieldForAwayGames(): Promise<number>;
   createImportRun(): Promise<ImportRunDb>;
   finishImportRun(id: string, data: { createdCount: number; updatedCount: number; archivedCount: number; errors: string[]; warnings: unknown[] }): Promise<void>;
   createImportWarning(runId: string, type: string, message: string, eventRefs?: unknown): Promise<void>;
@@ -87,6 +89,7 @@ function dbEventToCalendarEvent(dbEvent: CalendarEventDb): CalendarEvent {
     lastSeenAt: dbEvent.lastSeenAt?.toISOString(),
     archivedAt: dbEvent.archivedAt?.toISOString(),
     recurringGroupId: dbEvent.recurringGroupId ?? undefined,
+    rawPayload: dbEvent.rawPayload ?? undefined,
     createdAt: dbEvent.createdAt.toISOString(),
     updatedAt: dbEvent.updatedAt.toISOString(),
   };
@@ -347,6 +350,7 @@ export class DbStorage implements IDbStorage {
       location?: string;
       competition?: string;
       field?: string | null;
+      team?: string | null;
       rawPayload?: unknown;
     }
   ): Promise<CalendarEvent | undefined> {
@@ -360,6 +364,7 @@ export class DbStorage implements IDbStorage {
     if (data.location !== undefined) updateData.location = data.location;
     if (data.competition !== undefined) updateData.competition = data.competition;
     if (data.field !== undefined) updateData.field = data.field;
+    if (data.team !== undefined) updateData.team = data.team ?? null;
     if (data.rawPayload !== undefined) updateData.rawPayload = data.rawPayload;
     const [updated] = await db
       .update(calendarEventsTable)
@@ -367,6 +372,21 @@ export class DbStorage implements IDbStorage {
       .where(eq(calendarEventsTable.id, id))
       .returning();
     return updated ? dbEventToCalendarEvent(updated) : undefined;
+  }
+
+  async clearFieldForAwayGames(): Promise<number> {
+    // Einmaliges UPDATE: Bei allen Spielen, die kein Heimspiel sind, Platz auf NULL setzen
+    const updated = await db
+      .update(calendarEventsTable)
+      .set({ field: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(calendarEventsTable.type, "spiel"),
+          or(eq(calendarEventsTable.isHomeGame, false), isNull(calendarEventsTable.isHomeGame))
+        )
+      )
+      .returning({ id: calendarEventsTable.id });
+    return updated.length;
   }
 
   async createImportRun(): Promise<ImportRunDb> {

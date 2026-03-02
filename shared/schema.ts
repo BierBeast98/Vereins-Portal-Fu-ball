@@ -334,6 +334,8 @@ export interface CalendarEvent {
   lastSeenAt?: string;
   archivedAt?: string;
   recurringGroupId?: string;
+  /** Rohdaten vom BFV-Import (Parser-Output vor Weiterverarbeitung) */
+  rawPayload?: unknown;
   createdAt: string;
   updatedAt: string;
 }
@@ -342,7 +344,7 @@ export const insertCalendarEventSchema = z.object({
   title: z.string().min(1, "Titel ist erforderlich"),
   type: z.enum(EVENT_TYPES),
   team: z.enum(TEAMS).optional(),
-  field: z.enum(FIELDS).optional(),
+  field: z.union([z.enum(FIELDS), z.literal(null)]).optional(),
   date: z.string().min(1, "Datum ist erforderlich"),
   startTime: z.string().min(1, "Startzeit ist erforderlich"),
   endTime: z.string().min(1, "Endzeit ist erforderlich"),
@@ -396,33 +398,69 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   "sonstiges": "Sonstiges"
 };
 
-// Team colors for calendar display - each team has a distinct color
+// Mannschaftsfarben (Legende): Kräftig = Spiel, Hell mit Rand = Training
+export const TEAM_COLORS_SPIEL: Record<Team, string> = {
+  "herren": "bg-blue-600 text-white",
+  "herren2": "bg-blue-500 text-white",
+  "a-jugend": "bg-emerald-700 text-white",
+  "b-jugend": "bg-emerald-600 text-white",
+  "c-jugend": "bg-teal-600 text-white",
+  "d-jugend": "bg-teal-500 text-white",
+  "e-jugend": "bg-orange-500 text-white",
+  "f-jugend": "bg-orange-400 text-white",
+  "g-jugend": "bg-yellow-400 text-gray-900",
+  "damen": "bg-pink-600 text-white",
+  "alte-herren": "bg-slate-600 text-white",
+};
+
+export const TEAM_COLORS_TRAINING: Record<Team, string> = {
+  "herren": "bg-blue-200 text-blue-900 ring-1 ring-blue-600 dark:bg-blue-900/50 dark:text-blue-100 dark:ring-blue-400",
+  "herren2": "bg-blue-100 text-blue-800 ring-1 ring-blue-500 dark:bg-blue-800/40 dark:text-blue-200 dark:ring-blue-300",
+  "a-jugend": "bg-emerald-200 text-emerald-900 ring-1 ring-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-100 dark:ring-emerald-400",
+  "b-jugend": "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-500 dark:bg-emerald-800/40 dark:text-emerald-200 dark:ring-emerald-300",
+  "c-jugend": "bg-teal-200 text-teal-900 ring-1 ring-teal-600 dark:bg-teal-900/50 dark:text-teal-100 dark:ring-teal-400",
+  "d-jugend": "bg-teal-100 text-teal-800 ring-1 ring-teal-500 dark:bg-teal-800/40 dark:text-teal-200 dark:ring-teal-300",
+  "e-jugend": "bg-orange-200 text-orange-900 ring-1 ring-orange-500 dark:bg-orange-900/50 dark:text-orange-100 dark:ring-orange-400",
+  "f-jugend": "bg-orange-100 text-orange-800 ring-1 ring-orange-400 dark:bg-orange-800/40 dark:text-orange-200 dark:ring-orange-300",
+  "g-jugend": "bg-yellow-200 text-yellow-900 ring-1 ring-yellow-500 dark:bg-yellow-900/50 dark:text-yellow-100 dark:ring-yellow-400",
+  "damen": "bg-pink-200 text-pink-900 ring-1 ring-pink-600 dark:bg-pink-900/50 dark:text-pink-100 dark:ring-pink-400",
+  "alte-herren": "bg-slate-200 text-slate-800 ring-1 ring-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:ring-slate-400",
+};
+
+/** Farbe für Termin je nach Mannschaft und Typ (Spiel = kräftig, Training = hell mit Rand). */
+export function getTeamEventColorClass(team: Team, type: EventType): string {
+  if (type === "spiel") return TEAM_COLORS_SPIEL[team];
+  if (type === "training") return TEAM_COLORS_TRAINING[team];
+  return TEAM_COLORS_SPIEL[team];
+}
+
+// Team colors (Spiel) – für einfache Platzbelegung-Boxen, nur bg
 export const TEAM_COLORS: Record<Team, string> = {
   "herren": "bg-blue-600",
-  "herren2": "bg-blue-400",
-  "damen": "bg-pink-500",
-  "a-jugend": "bg-emerald-600",
-  "b-jugend": "bg-emerald-500",
-  "c-jugend": "bg-teal-500",
-  "d-jugend": "bg-cyan-500",
-  "e-jugend": "bg-amber-500",
+  "herren2": "bg-blue-500",
+  "a-jugend": "bg-emerald-700",
+  "b-jugend": "bg-emerald-600",
+  "c-jugend": "bg-teal-600",
+  "d-jugend": "bg-teal-500",
+  "e-jugend": "bg-orange-500",
   "f-jugend": "bg-orange-400",
-  "g-jugend": "bg-yellow-500",
-  "alte-herren": "bg-slate-500",
+  "g-jugend": "bg-yellow-400",
+  "damen": "bg-pink-600",
+  "alte-herren": "bg-slate-600",
 };
 
 export const TEAM_BORDER_COLORS: Record<Team, string> = {
   "herren": "border-blue-600",
-  "herren2": "border-blue-400",
-  "damen": "border-pink-500",
+  "herren2": "border-blue-500",
   "a-jugend": "border-emerald-600",
   "b-jugend": "border-emerald-500",
-  "c-jugend": "border-teal-500",
-  "d-jugend": "border-cyan-500",
-  "e-jugend": "border-amber-500",
+  "c-jugend": "border-teal-600",
+  "d-jugend": "border-teal-500",
+  "e-jugend": "border-orange-500",
   "f-jugend": "border-orange-400",
   "g-jugend": "border-yellow-500",
-  "alte-herren": "border-slate-500",
+  "damen": "border-pink-600",
+  "alte-herren": "border-slate-600",
 };
 
 // ======================================================

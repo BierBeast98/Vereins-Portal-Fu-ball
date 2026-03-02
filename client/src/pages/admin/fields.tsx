@@ -6,14 +6,17 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
-import type { CalendarEvent } from "@shared/schema";
+import type { CalendarEvent, Field } from "@shared/schema";
 import { 
   EVENT_TYPE_LABELS, 
   EVENT_TYPE_COLORS,
   TEAMS,
   TEAM_LABELS,
   FIELDS, 
-  FIELD_LABELS 
+  FIELD_LABELS,
+  getTeamEventColorClass,
+  TEAM_COLORS_SPIEL,
+  TEAM_COLORS_TRAINING,
 } from "@shared/schema";
 
 const WEEKDAYS_DE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
@@ -49,9 +52,12 @@ function formatDateDE(date: Date): string {
 // Relevant time span for field planning: 08:00–20:00
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8);
 
+// Kompakte Zeilenhöhe, damit mehr im Fenster sichtbar ist
+const ROW_HEIGHT = 40;
+
 export default function FieldsPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState<"week" | "day">("week");
+  const [fieldView, setFieldView] = useState<Field>("a-platz");
   const [filterTeam, setFilterTeam] = useState<string>("all");
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
@@ -84,6 +90,8 @@ export default function FieldsPage() {
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
       if (filterTeam !== "all" && event.team !== filterTeam) return false;
+      // Auswärtsspiele finden nicht auf unseren Plätzen statt → nicht in der Platzbelegung anzeigen
+      if (event.type === "spiel" && event.isHomeGame === false) return false;
       return true;
     });
   }, [events, filterTeam]);
@@ -123,11 +131,9 @@ export default function FieldsPage() {
     const startMin = parseInt(event.startTime.split(":")[1]);
     const endHour = parseInt(event.endTime.split(":")[0]);
     const endMin = parseInt(event.endTime.split(":")[1]);
-    
-    const top = ((startHour - 8) * 60 + startMin) * (48 / 60);
-    const height = ((endHour - startHour) * 60 + (endMin - startMin)) * (48 / 60);
-    
-    return { top, height: Math.max(height, 24) };
+    const top = ((startHour - 8) * 60 + startMin) * (ROW_HEIGHT / 60);
+    const height = ((endHour - startHour) * 60 + (endMin - startMin)) * (ROW_HEIGHT / 60);
+    return { top, height: Math.max(height, 20) };
   };
 
   const conflictDates = useMemo(() => {
@@ -144,11 +150,31 @@ export default function FieldsPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Platzbelegung</h1>
-          <p className="text-muted-foreground">
-            KW {getWeekNumber(weekDates[0])} | {formatDateDE(weekDates[0])} - {formatDateDE(weekDates[6])}
+          <p className="text-muted-foreground text-sm">
+            KW {getWeekNumber(weekDates[0])} | {formatDateDE(weekDates[0])} – {formatDateDE(weekDates[6])}. Wechsle zwischen A- und B-Platz.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-md border bg-background" role="group" aria-label="Platz wählen">
+            <button
+              type="button"
+              className={`px-3 py-1.5 text-sm font-medium rounded-l-md border-r ${
+                fieldView === "a-platz" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+              }`}
+              onClick={() => setFieldView("a-platz")}
+            >
+              A-Platz
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 text-sm font-medium rounded-r-md ${
+                fieldView === "b-platz" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+              }`}
+              onClick={() => setFieldView("b-platz")}
+            >
+              B-Platz
+            </button>
+          </div>
           <Select value={filterTeam} onValueChange={setFilterTeam}>
             <SelectTrigger className="w-40" data-testid="filter-team">
               <SelectValue placeholder="Mannschaft" />
@@ -162,7 +188,6 @@ export default function FieldsPage() {
               ))}
             </SelectContent>
           </Select>
-
           <Button variant="outline" onClick={goToToday} data-testid="button-today">
             Heute
           </Button>
@@ -199,140 +224,121 @@ export default function FieldsPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {FIELDS.map((field) => (
-          <Card key={field}>
-            <CardHeader>
-              <CardTitle className="text-lg">{FIELD_LABELS[field]}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <div className="min-w-[700px]">
-                  <div className="grid grid-cols-8 gap-1 mb-2">
-                    <div className="text-xs text-muted-foreground" />
-                    {weekDates.map((date, i) => {
-                      const dateStr = formatDate(date);
-                      const hasConflict = conflictDates.has(dateStr);
-                      const isToday = dateStr === today;
-                      
+      <Card className="min-w-0">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{FIELD_LABELS[fieldView]}</CardTitle>
+        </CardHeader>
+        <CardContent className="p-3 min-w-0 overflow-x-auto">
+          <div
+            className="grid gap-0.5 mb-1 w-full"
+            style={{ gridTemplateColumns: "auto repeat(7, minmax(0, 1fr))" }}
+          >
+            <div className="text-[10px] text-muted-foreground py-1 pr-1 text-right" />
+            {weekDates.map((date, i) => {
+              const dateStr = formatDate(date);
+              const hasConflict = conflictDates.has(dateStr);
+              const isToday = dateStr === today;
+              return (
+                <div
+                  key={i}
+                  className={`
+                    text-center text-[10px] font-medium py-1 px-0.5 rounded
+                    ${isToday ? "bg-primary text-primary-foreground" : ""}
+                    ${hasConflict ? "ring-1 ring-destructive" : ""}
+                  `}
+                >
+                  <div>{WEEKDAYS_SHORT[i]}</div>
+                  <div>{formatDateDE(date)}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="relative w-full">
+            <div
+              className="grid gap-0.5 w-full"
+              style={{ gridTemplateColumns: "auto repeat(7, minmax(0, 1fr))" }}
+            >
+              <div className="space-y-0 flex flex-col">
+                {HOURS.map((hour) => (
+                  <div
+                    key={hour}
+                    className="text-[10px] text-muted-foreground text-right pr-1 flex-shrink-0"
+                    style={{ height: ROW_HEIGHT }}
+                  >
+                    {hour}:00
+                  </div>
+                ))}
+              </div>
+              {weekDates.map((date, dayIndex) => {
+                const dateStr = formatDate(date);
+                const key = `${fieldView}-${dateStr}`;
+                const dayEvents = eventsByFieldAndDate.get(key) || [];
+                return (
+                  <div
+                    key={dayIndex}
+                    className="relative bg-muted/30 rounded min-w-0"
+                    style={{ height: HOURS.length * ROW_HEIGHT }}
+                  >
+                    {HOURS.map((hour) => (
+                      <div
+                        key={hour}
+                        className="absolute w-full border-t border-muted/60"
+                        style={{ top: `${(hour - 8) * ROW_HEIGHT}px` }}
+                      />
+                    ))}
+                    {dayEvents.map((event) => {
+                      const { top, height } = getEventPosition(event);
+                      const hasConflict = conflicts.some(
+                        (c) => c.event1.id === event.id || c.event2.id === event.id
+                      );
+                      const colorClass = event.team
+                        ? getTeamEventColorClass(event.team, event.type)
+                        : `${EVENT_TYPE_COLORS[event.type]} text-white`;
                       return (
                         <div
-                          key={i}
+                          key={event.id}
                           className={`
-                            text-center text-xs font-medium p-2 rounded
-                            ${isToday ? "bg-primary text-primary-foreground" : ""}
-                            ${hasConflict ? "ring-1 ring-destructive" : ""}
+                            absolute left-0.5 right-0.5 rounded p-0.5 text-[10px] overflow-hidden cursor-pointer
+                            ${colorClass}
+                            ${hasConflict ? "ring-2 ring-destructive" : ""}
                           `}
+                          style={{ top: `${top}px`, height: `${height}px` }}
+                          title={`${event.title}\n${event.startTime} - ${event.endTime}${event.team ? `\n${TEAM_LABELS[event.team]}` : ""}`}
+                          data-testid={`field-event-${event.id}`}
+                          onClick={() => setSelectedEvent(event)}
                         >
-                          <div>{WEEKDAYS_SHORT[i]}</div>
-                          <div>{formatDateDE(date)}</div>
+                          <div className="font-medium truncate leading-tight">{event.title}</div>
+                          {height > 22 && (
+                            <div className="truncate opacity-80 leading-tight">
+                              {event.startTime}-{event.endTime}
+                            </div>
+                          )}
+                          {height > 38 && event.team && (
+                            <div className="truncate opacity-80 leading-tight">{TEAM_LABELS[event.team]}</div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
-
-                  <div className="relative">
-                    <div className="grid grid-cols-8 gap-1">
-                      <div className="space-y-0">
-                        {HOURS.map((hour) => (
-                          <div
-                            key={hour}
-                            className="h-12 text-xs text-muted-foreground text-right pr-2 -mt-2"
-                          >
-                            {hour}:00
-                          </div>
-                        ))}
-                      </div>
-                      
-                      {weekDates.map((date, dayIndex) => {
-                        const dateStr = formatDate(date);
-                        const key = `${field}-${dateStr}`;
-                        const dayEvents = eventsByFieldAndDate.get(key) || [];
-                        
-                        return (
-                          <div
-                            key={dayIndex}
-                            className="relative bg-muted/30 rounded"
-                            style={{ height: `${HOURS.length * 48}px` }}
-                          >
-                            {HOURS.map((hour) => (
-                              <div
-                                key={hour}
-                                className="absolute w-full border-t border-muted"
-                                style={{ top: `${(hour - 7) * 48}px` }}
-                              />
-                            ))}
-                            
-                            {dayEvents.map((event) => {
-                              const { top, height } = getEventPosition(event);
-                              const hasConflict = conflicts.some(
-                                (c) => c.event1.id === event.id || c.event2.id === event.id
-                              );
-                              
-                              // Use team color if available, otherwise fall back to event type color
-                              const teamColors: Record<string, string> = {
-                                "herren": "bg-blue-600",
-                                "herren2": "bg-blue-400",
-                                "damen": "bg-pink-500",
-                                "a-jugend": "bg-emerald-600",
-                                "b-jugend": "bg-emerald-500",
-                                "c-jugend": "bg-teal-500",
-                                "d-jugend": "bg-cyan-500",
-                                "e-jugend": "bg-amber-500",
-                                "f-jugend": "bg-orange-400",
-                                "g-jugend": "bg-yellow-500",
-                                "alte-herren": "bg-slate-500",
-                              };
-                              const bgColor = event.team ? (teamColors[event.team] || EVENT_TYPE_COLORS[event.type]) : EVENT_TYPE_COLORS[event.type];
-                              const textColor = event.team === "g-jugend" ? "text-gray-900" : "text-white";
-                              
-                              return (
-                                <div
-                                  key={event.id}
-                                  className={`
-                                    absolute left-0.5 right-0.5 rounded p-1 text-xs overflow-hidden cursor-pointer
-                                    ${bgColor} ${textColor}
-                                    ${hasConflict ? "ring-2 ring-destructive" : ""}
-                                  `}
-                                  style={{ top: `${top}px`, height: `${height}px` }}
-                                  title={`${event.title}\n${event.startTime} - ${event.endTime}${event.team ? `\n${TEAM_LABELS[event.team]}` : ""}`}
-                                  data-testid={`field-event-${event.id}`}
-                                  onClick={() => setSelectedEvent(event)}
-                                >
-                                  <div className="font-medium truncate">{event.title}</div>
-                                  {height > 30 && (
-                                    <div className="truncate opacity-80">
-                                      {event.startTime} - {event.endTime}
-                                    </div>
-                                  )}
-                                  {height > 50 && event.team && (
-                                    <div className="truncate opacity-80">
-                                      {TEAM_LABELS[event.team]}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <span className="text-sm text-muted-foreground mr-2">Legende:</span>
-        {Object.entries(EVENT_TYPE_LABELS).map(([type, label]) => (
-          <div key={type} className="flex items-center gap-2 text-sm">
-            <div className={`w-3 h-3 rounded ${EVENT_TYPE_COLORS[type as keyof typeof EVENT_TYPE_COLORS]}`} />
-            <span>{label}</span>
+                );
+              })}
+            </div>
           </div>
-        ))}
+        </CardContent>
+      </Card>
+
+      <div className="mt-4 pt-4 border-t">
+        <h4 className="text-sm font-medium mb-2 text-muted-foreground">Mannschaftsfarben</h4>
+        <p className="text-xs text-muted-foreground mb-2">Kräftig = Spiel · Hell mit Rand = Training</p>
+        <div className="flex flex-wrap gap-2">
+          {TEAMS.map((team) => (
+            <span key={team} className="inline-flex items-center gap-1">
+              <Badge className={TEAM_COLORS_SPIEL[team]}>Spiel</Badge>
+              <Badge className={TEAM_COLORS_TRAINING[team]}>Training</Badge>
+              <span className="text-xs text-muted-foreground mr-2">{TEAM_LABELS[team]}</span>
+            </span>
+          ))}
+        </div>
       </div>
 
       {selectedEvent && (

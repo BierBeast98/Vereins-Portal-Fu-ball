@@ -1,5 +1,5 @@
 import type { CalendarEvent, Field } from "@shared/schema";
-import { FIELDS, FIELD_LABELS, TEAM_COLORS, EVENT_TYPE_COLORS } from "@shared/schema";
+import { FIELDS, FIELD_LABELS, getTeamEventColorClass, EVENT_TYPE_COLORS } from "@shared/schema";
 import { useMemo } from "react";
 
 const WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -48,9 +48,15 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
 
   const today = formatDate(new Date());
 
+  // Auswärtsspiele finden nicht auf unseren Plätzen statt → nicht in der Platzbelegung anzeigen
+  const eventsOnOurPitches = useMemo(
+    () => events.filter((e) => e.type !== "spiel" || e.isHomeGame !== false),
+    [events]
+  );
+
   const eventsByFieldAndDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
-    events.forEach((event) => {
+    eventsOnOurPitches.forEach((event) => {
       if (!event.field) return;
       const key = `${event.field}-${event.date}`;
       const existing = map.get(key) || [];
@@ -58,99 +64,113 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
       map.set(key, existing);
     });
     return map;
-  }, [events]);
+  }, [eventsOnOurPitches]);
+
+  // Kompaktere Zeilenhöhe (40px), damit mehr im Fenster sichtbar ist
+  const rowHeight = 40;
+  const totalHeight = HOURS.length * rowHeight;
+
+  const getEventPositionResized = (event: CalendarEvent) => {
+    const { top: t, height: h } = getEventPosition(event);
+    const scale = rowHeight / 48;
+    return { top: t * scale, height: Math.max(h * scale, 20) };
+  };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 gap-6">
       {fields.map((field) => (
-        <div key={field} className="border rounded-lg bg-card shadow-sm">
-          <div className="px-4 py-3 border-b">
-            <h3 className="font-semibold text-sm md:text-base">{FIELD_LABELS[field]}</h3>
+        <div key={field} className="border rounded-lg bg-card shadow-sm min-w-0">
+          <div className="px-3 py-2 border-b">
+            <h3 className="font-semibold text-sm">{FIELD_LABELS[field]}</h3>
           </div>
-          <div className="px-4 py-3 overflow-x-auto">
-            <div className="min-w-[700px]">
-              <div className="grid grid-cols-8 gap-1 mb-2">
-                <div className="text-xs text-muted-foreground" />
-                {dates.map((date, i) => {
+          <div className="p-3 min-w-0 overflow-x-auto overflow-y-hidden">
+            {/* Grid nutzt volle Breite: 1 Spalte Zeit + 7 Tage, alle Tage gleich breit */}
+            <div
+              className="grid gap-0.5 mb-1 w-full"
+              style={{ gridTemplateColumns: "auto repeat(7, minmax(0, 1fr))" }}
+            >
+              <div className="text-[10px] text-muted-foreground py-1 pr-1 text-right" />
+              {dates.map((date, i) => {
+                const dateStr = formatDate(date);
+                const isToday = dateStr === today;
+                const weekdayIndex = (date.getDay() + 6) % 7;
+                return (
+                  <div
+                    key={i}
+                    className={`
+                      text-center text-[10px] font-medium py-1 px-0.5 rounded
+                      ${isToday ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground"}
+                    `}
+                  >
+                    <div>{WEEKDAYS_SHORT[weekdayIndex]}</div>
+                    <div>{formatDateDE(date)}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="relative w-full">
+              <div
+                className="grid gap-0.5 w-full"
+                style={{ gridTemplateColumns: "auto repeat(7, minmax(0, 1fr))" }}
+              >
+                <div className="space-y-0 flex flex-col">
+                  {HOURS.map((hour) => (
+                    <div
+                      key={hour}
+                      className="text-[10px] text-muted-foreground text-right pr-1 flex-shrink-0"
+                      style={{ height: rowHeight }}
+                    >
+                      {hour}:00
+                    </div>
+                  ))}
+                </div>
+
+                {dates.map((date, dayIndex) => {
                   const dateStr = formatDate(date);
-                  const isToday = dateStr === today;
-                  // JS: 0=So,1=Mo,... → wir wollen 0=Mo
-                  const weekdayIndex = (date.getDay() + 6) % 7;
+                  const key = `${field}-${dateStr}`;
+                  const dayEvents = eventsByFieldAndDate.get(key) || [];
+
                   return (
                     <div
-                      key={i}
-                      className={`
-                        text-center text-xs font-medium p-2 rounded
-                        ${isToday ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground"}
-                      `}
+                      key={dayIndex}
+                      className="relative bg-muted/30 rounded min-w-0"
+                      style={{ height: totalHeight }}
                     >
-                      <div>{WEEKDAYS_SHORT[weekdayIndex]}</div>
-                      <div>{formatDateDE(date)}</div>
+                      {HOURS.map((hour) => (
+                        <div
+                          key={hour}
+                          className="absolute w-full border-t border-muted/60"
+                          style={{ top: `${(hour - 8) * rowHeight}px` }}
+                        />
+                      ))}
+
+                      {dayEvents.map((event) => {
+                        const { top, height } = getEventPositionResized(event);
+                        const colorClass = event.team
+                          ? getTeamEventColorClass(event.team, event.type)
+                          : `${EVENT_TYPE_COLORS[event.type]} text-white`;
+                        return (
+                          <div
+                            key={event.id}
+                            className={`
+                              absolute left-0.5 right-0.5 rounded p-0.5 text-[10px] overflow-hidden shadow-sm
+                              ${colorClass}
+                            `}
+                            style={{ top: `${top}px`, height: `${height}px` }}
+                          >
+                            <div className="font-medium truncate leading-tight">{event.title}</div>
+                            {height > 22 && (
+                              <div className="truncate opacity-80 leading-tight">
+                                {event.startTime}-{event.endTime}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
-              </div>
-
-              <div className="relative">
-                <div className="grid grid-cols-8 gap-1">
-                  <div className="space-y-0">
-                    {HOURS.map((hour) => (
-                      <div
-                        key={hour}
-                        className="h-12 text-xs text-muted-foreground text-right pr-2 -mt-2"
-                      >
-                        {hour}:00
-                      </div>
-                    ))}
-                  </div>
-
-                  {dates.map((date, dayIndex) => {
-                    const dateStr = formatDate(date);
-                    const key = `${field}-${dateStr}`;
-                    const dayEvents = eventsByFieldAndDate.get(key) || [];
-
-                    return (
-                      <div
-                        key={dayIndex}
-                        className="relative bg-muted/30 rounded"
-                        style={{ height: `${HOURS.length * 48}px` }}
-                      >
-                        {HOURS.map((hour) => (
-                          <div
-                            key={hour}
-                            className="absolute w-full border-t border-muted/60"
-                            style={{ top: `${(hour - 7) * 48}px` }}
-                          />
-                        ))}
-
-                        {dayEvents.map((event) => {
-                          const { top, height } = getEventPosition(event);
-                          const bgColor = event.team
-                            ? TEAM_COLORS[event.team] || EVENT_TYPE_COLORS[event.type]
-                            : EVENT_TYPE_COLORS[event.type];
-                          const textColor = event.team === "g-jugend" ? "text-gray-900" : "text-white";
-                          return (
-                            <div
-                              key={event.id}
-                              className={`
-                                absolute left-0.5 right-0.5 rounded-md p-1 text-xs overflow-hidden shadow-sm
-                                ${bgColor} ${textColor}
-                              `}
-                              style={{ top: `${top}px`, height: `${height}px` }}
-                            >
-                              <div className="font-medium truncate">{event.title}</div>
-                              {height > 30 && (
-                                <div className="truncate opacity-80">
-                                  {event.startTime} - {event.endTime}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             </div>
           </div>

@@ -6,6 +6,12 @@ const IMPORT_INTERVAL_MS =
   (parseInt(process.env.IMPORT_INTERVAL_HOURS ?? "24", 10) * 60 * 60 * 1000);
 const BFV_URL = process.env.BFV_URL;
 
+/** Eine oder mehrere URLs (kommagetrennt), z. B. TSV Greding + JFG Jura-Schwarzachtal */
+function getBfvUrls(): string[] {
+  if (!BFV_URL || !BFV_URL.trim()) return [];
+  return BFV_URL.split(",").map((u) => u.trim()).filter(Boolean);
+}
+
 let lock = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -13,27 +19,47 @@ export function isImportRunning(): boolean {
   return lock;
 }
 
-export async function triggerBfvImportNow(): Promise<{ ok: boolean; message: string }> {
+export async function triggerBfvImportNow(): Promise<{
+  ok: boolean;
+  message: string;
+  runId?: string;
+  sourceBreakdown?: { label: string; count: number; source: string }[];
+}> {
   if (lock) {
     return { ok: false, message: "Import läuft bereits." };
   }
-  if (!BFV_URL) {
+  const urls = getBfvUrls();
+  if (urls.length === 0) {
     return { ok: false, message: "BFV_URL ist nicht konfiguriert." };
+  }
+  if (urls.length > 1) {
+    console.log("[BFV Scheduler] Import aus", urls.length, "Quellen:", urls.map((u) => u.includes("jfg") ? "JFG Jura-Schwarzachtal" : "TSV Greding").join(", "));
   }
   lock = true;
   try {
-    const { runBfvImport } = await import("./bfvImportService");
-    const result = await runBfvImport(BFV_URL);
+    const { runBfvImport, runBfvImportFromMultipleUrls } = await import("./bfvImportService");
+    const result = urls.length === 1
+      ? await runBfvImport(urls[0])
+      : await runBfvImportFromMultipleUrls(urls);
+    const summary = `${result.createdCount} neu, ${result.updatedCount} aktualisiert, ${result.archivedCount} archiviert.`;
+    const breakdownText =
+      result.sourceBreakdown && result.sourceBreakdown.length > 0
+        ? result.sourceBreakdown.map((s) => `${s.label}: ${s.count} Spiele (${s.source})`).join(" · ")
+        : "";
+    const message = breakdownText
+      ? `Import abgeschlossen: ${summary} Abruf: ${breakdownText}`
+      : `Import abgeschlossen: ${summary}`;
     return {
       ok: true,
-      message: `Import abgeschlossen: ${result.createdCount} neu, ${result.updatedCount} aktualisiert, ${result.archivedCount} archiviert.`,
+      message,
       runId: result.runId,
+      sourceBreakdown: result.sourceBreakdown,
       createdCount: result.createdCount,
       updatedCount: result.updatedCount,
       archivedCount: result.archivedCount,
       errors: result.errors,
       warnings: result.warnings,
-    } as any;
+    };
   } catch (e) {
     console.error("[BFV Scheduler] Import error:", e);
     return { ok: false, message: String(e) };
@@ -43,7 +69,7 @@ export async function triggerBfvImportNow(): Promise<{ ok: boolean; message: str
 }
 
 export function startBfvScheduler(): void {
-  if (!BFV_URL) {
+  if (getBfvUrls().length === 0) {
     console.warn("[BFV Scheduler] BFV_URL not set – auto-import disabled.");
     return;
   }
@@ -53,7 +79,7 @@ export function startBfvScheduler(): void {
     console.log("[BFV Scheduler] Starting scheduled import.");
     await triggerBfvImportNow();
   }, IMPORT_INTERVAL_MS);
-  console.log(`[BFV Scheduler] Started (interval: ${IMPORT_INTERVAL_MS / 3600000}h).`);
+  console.log(`[BFV Scheduler] Started (${getBfvUrls().length} Quelle(n), interval: ${IMPORT_INTERVAL_MS / 3600000}h).`);
 }
 
 export function stopBfvScheduler(): void {

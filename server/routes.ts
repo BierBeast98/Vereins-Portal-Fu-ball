@@ -520,17 +520,20 @@ export async function registerRoutes(
         endDate as string
       );
 
-      // Find overlapping events on the same field
+      // Konflikt nur, wenn zwei Termine auf demselben Platz (Heimspiel/Belegung) zeitlich kollidieren. Auswärtsspiele zählen nicht.
       const conflicts: Array<{ event1: any; event2: any; reason: string }> = [];
+
+      const isOnOurPitch = (e: { type?: string; isHomeGame?: boolean; field?: string | null }) =>
+        (e.type !== "spiel" || e.isHomeGame === true) && e.field;
 
       for (let i = 0; i < events.length; i++) {
         for (let j = i + 1; j < events.length; j++) {
           const e1 = events[i];
           const e2 = events[j];
+          if (!isOnOurPitch(e1) || !isOnOurPitch(e2)) continue;
 
-          // Same date and same field?
-          if (e1.date === e2.date && e1.field && e2.field && e1.field === e2.field) {
-            // Check time overlap
+          // Gleicher Tag, gleicher Platz, überlappende Zeiten
+          if (e1.date === e2.date && e1.field === e2.field) {
             const start1 = parseInt(e1.startTime.replace(":", ""));
             const end1 = parseInt(e1.endTime.replace(":", ""));
             const start2 = parseInt(e2.startTime.replace(":", ""));
@@ -550,6 +553,16 @@ export async function registerRoutes(
       res.json(conflicts);
     } catch (error) {
       res.status(500).json({ error: "Konflikte konnten nicht ermittelt werden" });
+    }
+  });
+
+  // Einmalige Bereinigung: Platz bei allen Auswärtsspielen entfernen (behebt alte Import-Daten)
+  app.post("/api/calendar/fix-away-game-fields", requireAdmin, async (_req, res) => {
+    try {
+      const updated = await dbStorage.clearFieldForAwayGames();
+      res.json({ updated });
+    } catch (error) {
+      res.status(500).json({ error: "Bereinigung fehlgeschlagen" });
     }
   });
 
@@ -687,17 +700,19 @@ export async function registerRoutes(
 
   app.patch("/api/admin/event-requests/:id", requireAdmin, async (req, res) => {
     try {
-      // allow partial fields from insertEventRequestSchema plus adminNote/status
-      const base = insertEventRequestSchema.partial().parse(req.body);
+      const body = req.body as Record<string, unknown>;
+      const { team: _team, ...rest } = body;
+      const base = insertEventRequestSchema.partial().parse(rest);
       const patch: any = { ...base };
-      if ("status" in req.body) {
-        if (!EVENT_REQUEST_STATUSES.includes(req.body.status)) {
+      if ("team" in body) patch.team = body.team === null ? null : body.team;
+      if ("status" in body) {
+        if (typeof body.status === "string" && !EVENT_REQUEST_STATUSES.includes(body.status as any)) {
           return res.status(400).json({ error: "Ungültiger Status" });
         }
-        patch.status = req.body.status;
+        patch.status = body.status;
       }
-      if ("adminNote" in req.body) {
-        patch.adminNote = req.body.adminNote;
+      if ("adminNote" in body) {
+        patch.adminNote = body.adminNote;
       }
       const updated = await dbStorage.updateEventRequest(req.params.id as string, patch);
       if (!updated) {
@@ -715,9 +730,11 @@ export async function registerRoutes(
   app.post("/api/admin/event-requests/:id/approve", requireAdmin, async (req, res) => {
     try {
       const base = insertEventRequestSchema.partial().parse(req.body);
+      const body = req.body as Record<string, unknown>;
       const { request, event } = await approveEventRequest(req.params.id as string, {
         ...base,
-        adminNote: (req.body as any)?.adminNote,
+        adminNote: typeof body?.adminNote === "string" ? body.adminNote : undefined,
+        recurringGroupId: typeof body?.recurringGroupId === "string" ? body.recurringGroupId : undefined,
       });
       res.json({ request, event });
     } catch (error) {
@@ -838,7 +855,24 @@ export async function registerRoutes(
   });
 
   app.get("/api/calendar/bfv-import/status", requireAdmin, async (_req, res) => {
-    res.json({ running: isImportRunning(), bfvUrlConfigured: !!process.env.BFV_URL });
+    const urls = process.env.BFV_URL ? process.env.BFV_URL.split(",").map((u: string) => u.trim()).filter(Boolean) : [];
+    res.json({ running: isImportRunning(), bfvUrlConfigured: urls.length > 0, bfvUrlCount: urls.length });
+  });
+
+  app.get("/api/calendar/bfv-import/preview", requireAdmin, async (req, res) => {
+    try {
+      const urlParam = req.query.url as string | undefined;
+      const urls = process.env.BFV_URL ? process.env.BFV_URL.split(",").map((u: string) => u.trim()).filter(Boolean) : [];
+      const url = urlParam?.trim() || urls[0];
+      if (!url) {
+        return res.status(400).json({ error: "Keine BFV-URL angegeben oder konfiguriert." });
+      }
+      const { getBfvPreview } = await import("./bfvImportService");
+      const result = await getBfvPreview(url);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
   });
 
   startBfvScheduler();

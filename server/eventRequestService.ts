@@ -1,5 +1,8 @@
 import { dbStorage } from "./dbStorage";
-import type { EventRequest, InsertEventRequest, EventRequestStatus, InsertCalendarEvent, Field } from "@shared/schema";
+import type { EventRequest, InsertEventRequest, EventRequestStatus, InsertCalendarEvent, Field, Team } from "@shared/schema";
+import { parseStartEndInBerlin } from "./dateTimeBerlin";
+
+const TZ_DEBUG = "Europe/Berlin";
 
 function toDateOnly(date: Date): string {
   const year = date.getFullYear();
@@ -54,7 +57,7 @@ export async function createEventRequestWithValidation(data: InsertEventRequest)
 
 export async function approveEventRequest(
   id: string,
-  patch: Partial<InsertEventRequest> & { adminNote?: string }
+  patch: Partial<InsertEventRequest> & { adminNote?: string; recurringGroupId?: string }
 ): Promise<{ request: EventRequest; event: InsertCalendarEvent & { id: string } }> {
   const existing = await dbStorage.getEventRequestById(id);
   if (!existing) {
@@ -66,6 +69,19 @@ export async function approveEventRequest(
   const pitch = (patch.pitch ?? existing.pitch) as Field;
   const title = patch.title ?? existing.title;
 
+  // Parse start/end in Europe/Berlin so stored times are correct (no UTC shift)
+  const { date, startTime, endTime } = parseStartEndInBerlin(startAt, endAt);
+
+  // Debug: Kalender-Sync parsed values + RRULE/Serie
+  const rruleOrSeries = patch.recurringGroupId ? `recurringGroupId=${patch.recurringGroupId} (Terminserie)` : "Einzeltermin";
+  console.debug("[Kalender-Sync]", {
+    tz: TZ_DEBUG,
+    parsed: { date, startTime, endTime },
+    rawStartAt: String(patch.startAt ?? existing.startAt),
+    rawEndAt: String(patch.endAt ?? existing.endAt),
+    rruleOrSeries,
+  });
+
   const { hasConflict, conflicts } = await checkFieldConflicts(pitch, startAt, endAt);
   if (hasConflict) {
     const error: any = new Error("Konflikt mit bestehenden Terminen");
@@ -74,22 +90,36 @@ export async function approveEventRequest(
     throw error;
   }
 
-  const date = toDateOnly(startAt);
-  const startTime = toTimeStr(startAt);
-  const endTime = toTimeStr(endAt);
-
+  const team = patch.team ?? existing.team ?? undefined;
   const insertEvent: InsertCalendarEvent = {
     title,
     type: "training",
+    team: team as Team | undefined,
     field: pitch,
     date,
     startTime,
     endTime,
     description: existing.note,
     bfvImported: false,
+    recurringGroupId: patch.recurringGroupId,
   };
 
-  const created = await dbStorage.createCalendarEvent(insertEvent);
+  // Update existing calendar event instead of creating duplicate (e.g. re-approval)
+  let created: InsertCalendarEvent & { id: string };
+  if (existing.approvedEventId) {
+    const updated = await dbStorage.updateCalendarEvent(existing.approvedEventId, insertEvent);
+    if (!updated) {
+      const newEvent = await dbStorage.createCalendarEvent(insertEvent);
+      created = { ...insertEvent, id: newEvent.id };
+      console.debug("[Kalender-Sync] re-created event (previous was missing)", { eventId: created.id });
+    } else {
+      created = { ...insertEvent, id: updated.id };
+      console.debug("[Kalender-Sync] updated existing event", { eventId: created.id });
+    }
+  } else {
+    const newEvent = await dbStorage.createCalendarEvent(insertEvent);
+    created = { ...insertEvent, id: newEvent.id };
+  }
 
   const updatedRequest = await dbStorage.updateEventRequest(id, {
     ...patch,
@@ -101,7 +131,7 @@ export async function approveEventRequest(
     throw new Error("Failed to update request after approval");
   }
 
-  return { request: updatedRequest, event: { ...insertEvent, id: created.id } };
+  return { request: updatedRequest, event: created };
 }
 
 export async function rejectEventRequest(

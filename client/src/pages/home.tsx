@@ -19,7 +19,7 @@ export default function HomePage() {
     queryKey: ["/api/campaigns/active"],
   });
 
-  const [fieldView, setFieldView] = useState<"a" | "b" | "both">("both");
+  const [fieldView, setFieldView] = useState<"a" | "b">("a");
   const [requestOpen, setRequestOpen] = useState(false);
 
   // Aktuelle Kalenderwoche als Default, Betreuer können zwischen Wochen wechseln
@@ -173,42 +173,33 @@ export default function HomePage() {
             <div>
               <h2 className="text-2xl font-semibold">Platzbelegung (Betreuer-Ansicht)</h2>
               <p className="text-sm text-muted-foreground">
-                Übersicht der aktuellen Kalenderwoche für A- und B-Platz. Spiele und bestätigte Trainings werden angezeigt.
+                Übersicht der aktuellen Kalenderwoche. Wechsle zwischen A- und B-Platz. Spiele und bestätigte Trainings werden angezeigt.
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Woche {format(weekDates[0], "II")} · {format(weekDates[0], "dd.MM.")} – {format(weekDates[6], "dd.MM.yyyy")}
               </p>
             </div>
             <div className="flex flex-col items-stretch gap-3 md:items-end">
-              <div className="inline-flex rounded-md shadow-sm border bg-background self-start md:self-end" role="group">
-              <button
-                type="button"
-                className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-l-md ${
-                  fieldView === "a" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                }`}
-                onClick={() => setFieldView("a")}
-              >
-                Platz A
-              </button>
-              <button
-                type="button"
-                className={`px-3 py-1.5 text-xs md:text-sm font-medium border-l ${
-                  fieldView === "both" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                }`}
-                onClick={() => setFieldView("both")}
-              >
-                Beide
-              </button>
-              <button
-                type="button"
-                className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-r-md border-l ${
-                  fieldView === "b" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                }`}
-                onClick={() => setFieldView("b")}
-              >
-                Platz B
-              </button>
-            </div>
+              <div className="inline-flex rounded-md shadow-sm border bg-background self-start md:self-end" role="group" aria-label="Platz wählen">
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-l-md border-r ${
+                    fieldView === "a" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                  }`}
+                  onClick={() => setFieldView("a")}
+                >
+                  A-Platz
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-r-md ${
+                    fieldView === "b" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                  }`}
+                  onClick={() => setFieldView("b")}
+                >
+                  B-Platz
+                </button>
+              </div>
               <div className="inline-flex rounded-md shadow-sm border bg-background self-start md:self-end" role="group">
                 <button
                   type="button"
@@ -250,13 +241,7 @@ export default function HomePage() {
             events={fieldEvents}
             startDate={startDateStr}
             days={days}
-            fields={
-              fieldView === "a"
-                ? (["a-platz"] as Field[])
-                : fieldView === "b"
-                ? (["b-platz"] as Field[])
-                : (FIELDS as Field[])
-            }
+            fields={fieldView === "a" ? (["a-platz"] as Field[]) : (["b-platz"] as Field[])}
           />
 
           <TrainingRequestDialog
