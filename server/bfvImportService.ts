@@ -88,6 +88,7 @@ export async function runBfvImportFromMultipleUrls(bfvUrls: string[]): Promise<I
         const endTime = toTimeString(m.endAt);
         const title = m.title || `${m.teamHome} - ${m.teamAway}`;
         const isHome = isHomeGame(m.teamHome, m.teamAway);
+        const onOurField = isAtOurField(m.teamHome);
         const inferredTeam = inferTeamFromMatch(m.teamHome, m.teamAway, m.competition, m.sectionHeaderFromPdf);
 
         if (existingByStableKey) {
@@ -98,7 +99,7 @@ export async function runBfvImportFromMultipleUrls(bfvUrls: string[]): Promise<I
             title,
             location: m.locationText ?? undefined,
             competition: m.competition ?? undefined,
-            field: isHome ? m.pitch : null,
+            field: onOurField ? m.pitch : null,
             team: inferredTeam ?? null,
             lastSeenAt: now,
             rawPayload: m.raw,
@@ -115,7 +116,7 @@ export async function runBfvImportFromMultipleUrls(bfvUrls: string[]): Promise<I
             opponent: isHome ? m.teamAway : m.teamHome,
             location: m.locationText ?? undefined,
             competition: m.competition ?? undefined,
-            field: isHome ? (m.pitch ?? undefined) : null,
+            field: onOurField ? (m.pitch ?? undefined) : null,
             team: inferredTeam,
             bfvImported: true,
             bfvMatchId: m.sourceId ?? undefined,
@@ -156,6 +157,7 @@ export async function runBfvImportFromMultipleUrls(bfvUrls: string[]): Promise<I
       if (possibleReschedule.length === 1) {
         const fm = possibleReschedule[0];
         const isHome = isHomeGame(fm.teamHome, fm.teamAway);
+        const onOurField = isAtOurField(fm.teamHome);
         const inferredTeam = inferTeamFromMatch(fm.teamHome, fm.teamAway, fm.competition, fm.sectionHeaderFromPdf);
         await dbStorage.updateCalendarEventBfv(event.id, {
           date: toDateOnly(fm.startAt),
@@ -164,7 +166,7 @@ export async function runBfvImportFromMultipleUrls(bfvUrls: string[]): Promise<I
           title: fm.title,
           location: fm.locationText ?? undefined,
           competition: fm.competition ?? undefined,
-          field: isHome ? fm.pitch : null,
+          field: onOurField ? fm.pitch : null,
           team: inferredTeam ?? null,
           lastSeenAt: now,
           rawPayload: fm.raw,
@@ -222,6 +224,12 @@ function isHomeGame(teamHome: string, teamAway: string): boolean {
   const t = (teamHome || "").toLowerCase();
   if (t.includes("greding") || t.includes("jura-schwarzachtal")) return true;
   return false;
+}
+
+/** Spiel findet auf unserem Platz statt: nur TSV Greding.
+ *  JFG Jura-Schwarzachtal hat ihr Heimspielrecht in Haunstetten → kein Feldeintrag bei uns. */
+function isAtOurField(teamHome: string): boolean {
+  return (teamHome || "").toLowerCase().includes("greding");
 }
 
 /** Aus Teamnamen, Wettbewerb und ggf. PDF-Überschrift die Mannschaft ableiten. PDF: Überschrift = Altersklasse, I/II = Mannschaft 1/2 dieser Klasse. */
@@ -338,6 +346,7 @@ export async function runBfvImport(bfvUrl: string): Promise<ImportResult> {
         const endTime = toTimeString(m.endAt);
         const title = m.title || `${m.teamHome} - ${m.teamAway}`;
         const isHome = isHomeGame(m.teamHome, m.teamAway);
+        const onOurField = isAtOurField(m.teamHome);
         const inferredTeam = inferTeamFromMatch(m.teamHome, m.teamAway, m.competition, m.sectionHeaderFromPdf);
 
         if (existingByStableKey) {
@@ -348,7 +357,7 @@ export async function runBfvImport(bfvUrl: string): Promise<ImportResult> {
             title,
             location: m.locationText ?? undefined,
             competition: m.competition ?? undefined,
-            field: isHome ? m.pitch : null,
+            field: onOurField ? m.pitch : null,
             team: inferredTeam ?? null,
             lastSeenAt: now,
             rawPayload: m.raw,
@@ -365,7 +374,7 @@ export async function runBfvImport(bfvUrl: string): Promise<ImportResult> {
             opponent: isHome ? m.teamAway : m.teamHome,
             location: m.locationText ?? undefined,
             competition: m.competition ?? undefined,
-            field: isHome ? (m.pitch ?? undefined) : null,
+            field: onOurField ? (m.pitch ?? undefined) : null,
             team: inferredTeam,
             bfvImported: true,
             bfvMatchId: m.sourceId ?? undefined,
@@ -410,6 +419,7 @@ export async function runBfvImport(bfvUrl: string): Promise<ImportResult> {
       if (possibleReschedule.length === 1) {
         const fm = possibleReschedule[0];
         const isHome = isHomeGame(fm.teamHome, fm.teamAway);
+        const onOurField = isAtOurField(fm.teamHome);
         const inferredTeam = inferTeamFromMatch(fm.teamHome, fm.teamAway, fm.competition, fm.sectionHeaderFromPdf);
         await dbStorage.updateCalendarEventBfv(event.id, {
           date: toDateOnly(fm.startAt),
@@ -418,7 +428,7 @@ export async function runBfvImport(bfvUrl: string): Promise<ImportResult> {
           title: fm.title,
           location: fm.locationText ?? undefined,
           competition: fm.competition ?? undefined,
-          field: isHome ? fm.pitch : null,
+          field: onOurField ? fm.pitch : null,
           team: inferredTeam ?? null,
           lastSeenAt: now,
           rawPayload: fm.raw,

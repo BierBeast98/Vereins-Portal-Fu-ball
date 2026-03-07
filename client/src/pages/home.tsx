@@ -12,6 +12,7 @@ import { de } from "date-fns/locale";
 import tsvLogo from "@/TSV_Greding_logo_transparent.png";
 import { TrainingRequestDialog } from "@/components/training-request-dialog";
 import { MobileFieldCalendar } from "@/components/mobile-field-calendar";
+import { YearCalendarOverview } from "@/components/year-calendar-overview";
 
 export default function HomePage() {
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
@@ -137,6 +138,14 @@ export default function HomePage() {
             </CardContent>
           </Card>
         )}
+
+        <section className="pt-8 border-t">
+          <h2 className="text-2xl font-semibold mb-1">Jahreskalender</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Alle Spiele und Trainings auf einen Blick – auf einen Tag klicken für Details.
+          </p>
+          <YearCalendarOverview />
+        </section>
 
         <section className="pt-8 border-t">
           <h2 className="text-2xl font-semibold mb-1">Platzbelegung</h2>
