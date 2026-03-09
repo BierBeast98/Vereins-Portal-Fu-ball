@@ -71,7 +71,8 @@ export default function RequestsPage() {
         req.createdBy ?? "",
         req.title,
         req.pitch,
-        start.toISOString().slice(11, 16), // HH:MM
+        // Berlin-Ortszeit verwenden (nicht UTC), damit Zeitumstellung keine Gruppe splittet
+        new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin", hour12: false }).format(start),
         durationMinutes.toString(),
         req.note ?? "",
         req.status,
