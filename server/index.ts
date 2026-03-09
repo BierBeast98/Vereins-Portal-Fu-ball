@@ -14,6 +14,13 @@ const app = express();
 const httpServer = createServer(app);
 const isProduction = process.env.NODE_ENV === "production";
 
+// Hostinger läuft hinter einem Reverse-Proxy (HTTPS → HTTP intern).
+// trust proxy = 1 sorgt dafür, dass Express req.secure korrekt erkennt,
+// damit Session-Cookies mit secure:true gesetzt werden.
+if (isProduction) {
+  app.set("trust proxy", 1);
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
