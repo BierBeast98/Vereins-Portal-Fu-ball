@@ -76,6 +76,42 @@ export default function FieldsPage() {
     },
   });
 
+  // Ausstehende Vorschläge ebenfalls laden und als grau anzeigen
+  const { data: pendingRequests = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/event-requests", "pending", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/event-requests?status=pending&fromDate=${startDate}T00:00:00&toDate=${endDate}T23:59:59`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to fetch pending requests");
+      return res.json();
+    },
+  });
+
+  // Pending Requests in CalendarEvent-Format umwandeln
+  const pendingEvents = useMemo<CalendarEvent[]>(() => {
+    return pendingRequests.map((r) => {
+      const startD = new Date(r.startAt);
+      const endD = new Date(r.endAt);
+      const date = formatDate(startD);
+      const startTime = `${String(startD.getHours()).padStart(2, "0")}:${String(startD.getMinutes()).padStart(2, "0")}`;
+      const endTime = `${String(endD.getHours()).padStart(2, "0")}:${String(endD.getMinutes()).padStart(2, "0")}`;
+      return {
+        id: r.id,
+        title: r.title,
+        type: "training" as const,
+        team: r.team ?? undefined,
+        field: r.pitch,
+        date,
+        startTime,
+        endTime,
+        bfvImported: false,
+        isPending: true,
+      } as CalendarEvent;
+    });
+  }, [pendingRequests]);
+
   const { data: conflicts = [] } = useQuery<{ event1: CalendarEvent; event2: CalendarEvent; reason: string }[]>({
     queryKey: ["/api/calendar/conflicts", startDate, endDate],
     queryFn: async () => {
@@ -88,13 +124,18 @@ export default function FieldsPage() {
   });
 
   const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
+    const approved = events.filter((event) => {
       if (filterTeam !== "all" && event.team !== filterTeam) return false;
       // Auswärtsspiele finden nicht auf unseren Plätzen statt → nicht in der Platzbelegung anzeigen
       if (event.type === "spiel" && event.isHomeGame === false) return false;
       return true;
     });
-  }, [events, filterTeam]);
+    const pending = pendingEvents.filter((event) => {
+      if (filterTeam !== "all" && event.team !== filterTeam) return false;
+      return true;
+    });
+    return [...approved, ...pending];
+  }, [events, pendingEvents, filterTeam]);
 
   const eventsByFieldAndDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -291,9 +332,11 @@ export default function FieldsPage() {
                       const hasConflict = conflicts.some(
                         (c) => c.event1.id === event.id || c.event2.id === event.id
                       );
-                      const colorClass = event.team
-                        ? getTeamEventColorClass(event.team, event.type)
-                        : `${EVENT_TYPE_COLORS[event.type]} text-white`;
+                      const colorClass = event.isPending
+                        ? "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-dashed border-gray-400"
+                        : event.team
+                          ? getTeamEventColorClass(event.team, event.type)
+                          : `${EVENT_TYPE_COLORS[event.type]} text-white`;
                       return (
                         <div
                           key={event.id}
@@ -301,13 +344,16 @@ export default function FieldsPage() {
                             absolute left-0.5 right-0.5 rounded p-0.5 text-[10px] overflow-hidden cursor-pointer
                             ${colorClass}
                             ${hasConflict ? "ring-2 ring-destructive" : ""}
+                            ${event.isPending ? "opacity-70" : ""}
                           `}
                           style={{ top: `${top}px`, height: `${height}px` }}
-                          title={`${event.title}\n${event.startTime} - ${event.endTime}${event.team ? `\n${TEAM_LABELS[event.team]}` : ""}`}
+                          title={`${event.isPending ? "⏳ Vorschlag (ausstehend)\n" : ""}${event.title}\n${event.startTime} - ${event.endTime}${event.team ? `\n${TEAM_LABELS[event.team]}` : ""}`}
                           data-testid={`field-event-${event.id}`}
                           onClick={() => setSelectedEvent(event)}
                         >
-                          <div className="font-medium truncate leading-tight">{event.title}</div>
+                          <div className="font-medium truncate leading-tight">
+                            {event.isPending ? "⏳ " : ""}{event.title}
+                          </div>
                           {height > 22 && (
                             <div className="truncate opacity-80 leading-tight">
                               {event.startTime}-{event.endTime}
@@ -352,6 +398,11 @@ export default function FieldsPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 text-sm">
+              {selectedEvent.isPending && (
+                <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 px-3 py-2 text-yellow-800 dark:text-yellow-300 text-xs">
+                  ⏳ Ausstehender Vorschlag – noch nicht freigegeben
+                </div>
+              )}
               {selectedEvent.team && (
                 <div>
                   <span className="font-medium">Mannschaft: </span>
