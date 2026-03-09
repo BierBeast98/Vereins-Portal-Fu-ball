@@ -69,8 +69,7 @@ export default function HomePage() {
           </div>
           <h1 className="text-3xl md:text-4xl font-bold mb-4">Vereinsportal TSV Greding</h1>
           <p className="text-lg text-primary-foreground/80 max-w-xl mx-auto">
-            Willkommen im Vereinsportal für Trainings- und Präsentationsbekleidung.
-            Hier kannst du an aktiven Sammelbestellungen teilnehmen.
+            Sammelbestellungen, Spielplan und Platzbelegung – alles auf einen Blick.
           </p>
         </div>
       </div>

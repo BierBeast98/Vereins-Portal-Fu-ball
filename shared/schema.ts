@@ -285,7 +285,6 @@ export const TEAMS = [
   "e-jugend",
   "f-jugend",
   "g-jugend",
-  "damen",
   "alte-herren"
 ] as const;
 export type Team = typeof TEAMS[number];
@@ -300,7 +299,6 @@ export const TEAM_LABELS: Record<Team, string> = {
   "e-jugend": "E-Jugend",
   "f-jugend": "F-Jugend",
   "g-jugend": "G-Jugend",
-  "damen": "Damen",
   "alte-herren": "Alte Herren"
 };
 
@@ -338,6 +336,8 @@ export interface CalendarEvent {
   rawPayload?: unknown;
   createdAt: string;
   updatedAt: string;
+  /** Vorgeschlagenes Event (noch nicht vom Admin bestätigt) */
+  isPending?: boolean;
 }
 
 export const insertCalendarEventSchema = z.object({
@@ -409,7 +409,6 @@ export const TEAM_COLORS_SPIEL: Record<Team, string> = {
   "e-jugend": "bg-orange-500 text-white",
   "f-jugend": "bg-orange-400 text-white",
   "g-jugend": "bg-yellow-400 text-gray-900",
-  "damen": "bg-pink-600 text-white",
   "alte-herren": "bg-slate-600 text-white",
 };
 
@@ -423,7 +422,6 @@ export const TEAM_COLORS_TRAINING: Record<Team, string> = {
   "e-jugend": "bg-orange-200 text-orange-900 ring-1 ring-orange-500 dark:bg-orange-900/50 dark:text-orange-100 dark:ring-orange-400",
   "f-jugend": "bg-orange-100 text-orange-800 ring-1 ring-orange-400 dark:bg-orange-800/40 dark:text-orange-200 dark:ring-orange-300",
   "g-jugend": "bg-yellow-200 text-yellow-900 ring-1 ring-yellow-500 dark:bg-yellow-900/50 dark:text-yellow-100 dark:ring-yellow-400",
-  "damen": "bg-pink-200 text-pink-900 ring-1 ring-pink-600 dark:bg-pink-900/50 dark:text-pink-100 dark:ring-pink-400",
   "alte-herren": "bg-slate-200 text-slate-800 ring-1 ring-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:ring-slate-400",
 };
 
@@ -445,7 +443,6 @@ export const TEAM_COLORS: Record<Team, string> = {
   "e-jugend": "bg-orange-500",
   "f-jugend": "bg-orange-400",
   "g-jugend": "bg-yellow-400",
-  "damen": "bg-pink-600",
   "alte-herren": "bg-slate-600",
 };
 
@@ -459,7 +456,6 @@ export const TEAM_BORDER_COLORS: Record<Team, string> = {
   "e-jugend": "border-orange-500",
   "f-jugend": "border-orange-400",
   "g-jugend": "border-yellow-500",
-  "damen": "border-pink-600",
   "alte-herren": "border-slate-600",
 };
 

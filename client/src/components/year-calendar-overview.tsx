@@ -9,29 +9,25 @@ import {
   eachDayOfInterval,
   getDay,
   isSameDay,
-  parseISO,
-  addYears,
-  subYears,
 } from "date-fns";
 import { de } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { CalendarEvent } from "@shared/schema";
+import type { CalendarEvent, Team } from "@shared/schema";
+import { TEAM_LABELS, TEAM_COLORS, getTeamEventColorClass } from "@shared/schema";
 
-const TEAM_LABELS: Record<string, string> = {
-  herren: "Herren",
-  herren2: "Herren II",
-  damen: "Damen",
-  "alte-herren": "Alte Herren",
-  "a-jugend": "A-Jugend",
-  "b-jugend": "B-Jugend",
-  "c-jugend": "C-Jugend",
-  "d-jugend": "D-Jugend",
-  "e-jugend": "E-Jugend",
-  "f-jugend": "F-Jugend",
-  "g-jugend": "G-Jugend",
-};
+const ALL_TEAMS: Team[] = [
+  "herren", "herren2", "alte-herren",
+  "a-jugend", "b-jugend", "c-jugend", "d-jugend", "e-jugend", "f-jugend", "g-jugend",
+];
+
+function getEventDotBg(event: CalendarEvent): string {
+  if (event.isPending) return "bg-gray-300 dark:bg-gray-600";
+  if (!event.team) return event.type === "spiel" ? "bg-blue-500" : "bg-green-500";
+  const cls = getTeamEventColorClass(event.team as Team, event.type);
+  return cls.split(" ").find((c) => c.startsWith("bg-")) ?? "bg-gray-400";
+}
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
@@ -79,10 +75,12 @@ function MonthGrid({
         {days.map((day) => {
           const dateKey = format(day, "yyyy-MM-dd");
           const dayEvents = eventsByDate.get(dateKey) ?? [];
-          const hasSpiel = dayEvents.some((e) => e.type === "spiel");
-          const hasTraining = dayEvents.some((e) => e.type === "training");
           const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
           const isToday = isSameDay(day, new Date());
+          // Max 3 Punkte, je ein Punkt pro einzigartiger Team+Typ-Kombination
+          const dots = Array.from(
+            new Map(dayEvents.map((e) => [`${e.team}-${e.type}`, e])).values()
+          ).slice(0, 3);
 
           return (
             <button
@@ -97,22 +95,15 @@ function MonthGrid({
             >
               <span>{format(day, "d")}</span>
               <div className="flex gap-0.5 mt-0.5 h-1.5">
-                {hasSpiel && (
+                {dots.map((e, i) => (
                   <span
+                    key={i}
                     className={cn(
                       "w-1.5 h-1.5 rounded-full",
-                      isSelected ? "bg-primary-foreground" : "bg-blue-500"
+                      isSelected ? "bg-primary-foreground" : getEventDotBg(e)
                     )}
                   />
-                )}
-                {hasTraining && (
-                  <span
-                    className={cn(
-                      "w-1.5 h-1.5 rounded-full",
-                      isSelected ? "bg-primary-foreground" : "bg-green-500"
-                    )}
-                  />
-                )}
+                ))}
               </div>
             </button>
           );
@@ -128,46 +119,50 @@ function EventList({ date, events }: { date: Date; events: CalendarEvent[] }) {
 
   return (
     <div className="space-y-2">
-      {dayEvents.map((event) => (
-        <div
-          key={event.id}
-          className={cn(
-            "flex items-start gap-3 p-3 rounded-lg border",
-            event.type === "spiel"
-              ? "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30"
-              : "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30"
-          )}
-        >
-          <span
+      {dayEvents.map((event) => {
+        const dotBg = getEventDotBg(event);
+        return (
+          <div
+            key={event.id}
             className={cn(
-              "w-2 h-2 rounded-full mt-1.5 shrink-0",
-              event.type === "spiel" ? "bg-blue-500" : "bg-green-500"
+              "flex items-start gap-3 p-3 rounded-lg border bg-card",
+              event.isPending && "opacity-60 border-dashed"
             )}
-          />
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{event.title}</p>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground mt-0.5">
-              {event.startTime && (
-                <span>
-                  {event.startTime}
-                  {event.endTime ? ` – ${event.endTime}` : ""}
-                </span>
-              )}
-              {event.team && <span>{TEAM_LABELS[event.team] ?? event.team}</span>}
-              {event.field && <span>{event.field === "a-platz" ? "A-Platz" : "B-Platz"}</span>}
-              {event.type === "spiel" && event.isHomeGame === false && (
-                <span className="italic">Auswärtsspiel</span>
-              )}
+          >
+            <span className={cn("w-2.5 h-2.5 rounded-full mt-1.5 shrink-0", dotBg)} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium truncate">{event.title}</p>
+                {event.isPending && (
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                    Vorschlag
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground mt-0.5">
+                {event.startTime && (
+                  <span>
+                    {event.startTime}
+                    {event.endTime ? ` – ${event.endTime}` : ""}
+                  </span>
+                )}
+                {event.team && <span>{TEAM_LABELS[event.team as Team] ?? event.team}</span>}
+                {event.field && <span>{event.field === "a-platz" ? "A-Platz" : "B-Platz"}</span>}
+                {event.type === "spiel" && event.isHomeGame === false && (
+                  <span className="italic">Auswärtsspiel</span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 export function YearCalendarOverview() {
   const [year, setYear] = useState(new Date().getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   const startDate = format(startOfYear(new Date(year, 0)), "yyyy-MM-dd");
@@ -186,85 +181,134 @@ export function YearCalendarOverview() {
 
   const months = Array.from({ length: 12 }, (_, i) => i);
 
+  function prevMonth() {
+    if (currentMonth === 0) {
+      setYear((y) => y - 1);
+      setCurrentMonth(11);
+    } else {
+      setCurrentMonth((m) => m - 1);
+    }
+    setSelectedDate(null);
+  }
+
+  function nextMonth() {
+    if (currentMonth === 11) {
+      setYear((y) => y + 1);
+      setCurrentMonth(0);
+    } else {
+      setCurrentMonth((m) => m + 1);
+    }
+    setSelectedDate(null);
+  }
+
+  const legend = (
+    <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+      {ALL_TEAMS.map((team) => (
+        <span key={team} className="flex items-center gap-1">
+          <span className={`w-2 h-2 rounded-full inline-block ${TEAM_COLORS[team]}`} />
+          {TEAM_LABELS[team]}
+        </span>
+      ))}
+    </div>
+  );
+
+  const eventDetail = selectedDate && (
+    <div className="border rounded-lg p-4 bg-card space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">
+          {format(selectedDate, "EEEE, d. MMMM yyyy", { locale: de })}
+        </h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={() => setSelectedDate(null)}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <EventList date={selectedDate} events={events} />
+    </div>
+  );
+
   return (
     <div className="space-y-4">
-      {/* Jahr-Navigation */}
-      <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setYear((y) => y - 1);
-            setSelectedDate(null);
-          }}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="font-semibold text-lg">{year}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setYear((y) => y + 1);
-            setSelectedDate(null);
-          }}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+      {/* Mobile: Ein-Monat-Ansicht */}
+      <div className="sm:hidden space-y-4">
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={prevMonth}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="font-semibold text-lg">
+            {format(new Date(year, currentMonth), "MMMM yyyy", { locale: de })}
+          </span>
+          <Button variant="ghost" size="sm" onClick={nextMonth}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+        {legend}
+        {isLoading ? (
+          <div className="h-36 rounded-lg bg-muted animate-pulse" />
+        ) : (
+          <MonthGrid
+            year={year}
+            month={currentMonth}
+            events={events}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+          />
+        )}
+        {eventDetail}
       </div>
 
-      {/* Legende */}
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
-          Spiel
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-          Training
-        </span>
-      </div>
-
-      {isLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
-          {months.map((m) => (
-            <div key={m} className="h-36 rounded-lg bg-muted animate-pulse" />
-          ))}
+      {/* Desktop: Jahres-Grid */}
+      <div className="hidden sm:block space-y-4">
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setYear((y) => y - 1);
+              setSelectedDate(null);
+            }}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="font-semibold text-lg">{year}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setYear((y) => y + 1);
+              setSelectedDate(null);
+            }}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-8">
-          {months.map((m) => (
-            <MonthGrid
-              key={m}
-              year={year}
-              month={m}
-              events={events}
-              selectedDate={selectedDate}
-              onSelectDate={setSelectedDate}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Detailansicht für ausgewählten Tag */}
-      {selectedDate && (
-        <div className="border rounded-lg p-4 bg-card space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">
-              {format(selectedDate, "EEEE, d. MMMM yyyy", { locale: de })}
-            </h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => setSelectedDate(null)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+        {legend}
+        {isLoading ? (
+          <div className="grid sm:grid-cols-3 md:grid-cols-4 gap-6">
+            {months.map((m) => (
+              <div key={m} className="h-36 rounded-lg bg-muted animate-pulse" />
+            ))}
           </div>
-          <EventList date={selectedDate} events={events} />
-        </div>
-      )}
+        ) : (
+          <div className="grid sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-8">
+            {months.map((m) => (
+              <MonthGrid
+                key={m}
+                year={year}
+                month={m}
+                events={events}
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+              />
+            ))}
+          </div>
+        )}
+        {eventDetail}
+      </div>
     </div>
   );
 }

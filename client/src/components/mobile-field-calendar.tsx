@@ -1,5 +1,5 @@
-import type { CalendarEvent, Field } from "@shared/schema";
-import { getTeamEventColorClass, EVENT_TYPE_COLORS } from "@shared/schema";
+import type { CalendarEvent, Field, Team } from "@shared/schema";
+import { getTeamEventColorClass, EVENT_TYPE_COLORS, TEAM_LABELS } from "@shared/schema";
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth } from "date-fns";
@@ -17,6 +17,7 @@ function formatDate(date: Date): string {
 }
 
 function getEventDotBg(event: CalendarEvent): string {
+  if (event.isPending) return "bg-gray-300 dark:bg-gray-600";
   const colorClass = event.team
     ? getTeamEventColorClass(event.team, event.type)
     : `${EVENT_TYPE_COLORS[event.type]} text-white`;
@@ -258,16 +259,23 @@ export function MobileFieldCalendar({
               return (
                 <div
                   key={event.id}
-                  className="flex items-start gap-3 p-3 rounded-xl border bg-card shadow-sm"
+                  className={`flex items-start gap-3 p-3 rounded-xl border bg-card shadow-sm${event.isPending ? " opacity-60 border-dashed" : ""}`}
                 >
                   <span
                     className={`w-3 h-3 rounded-full mt-0.5 flex-shrink-0 ${bgClass}`}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium leading-snug">{event.title}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium leading-snug">{event.title}</p>
+                      {event.isPending && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                          Vorschlag
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {event.startTime} – {event.endTime}
-                      {event.team && <> · {event.team}</>}
+                      {event.team && <> · {TEAM_LABELS[event.team as Team] ?? event.team}</>}
                     </p>
                   </div>
                 </div>

@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { dbStorage } from "./dbStorage";
+import { parseStartEndInBerlin } from "./dateTimeBerlin";
 import { 
   insertProductSchema, 
   insertCampaignSchema, 
@@ -190,7 +191,34 @@ export async function registerRoutes(
         events = await dbStorage.getCalendarEventsByDateRange(startDate as string, endDate as string);
       }
 
-      res.json(events);
+      // Pending event requests als ausgegraut anzeigen
+      const pendingRequests = await dbStorage.listEventRequests({
+        status: "pending",
+        fromDate: (startDate as string) + "T00:00:00",
+        toDate: (endDate as string) + "T23:59:59",
+      });
+
+      const pendingEvents = pendingRequests
+        .filter((r) => !field || r.pitch === field)
+        .map((r) => {
+          const { date, startTime, endTime } = parseStartEndInBerlin(r.startAt, r.endAt);
+          return {
+            id: r.id,
+            title: r.title,
+            type: "training" as const,
+            team: r.team,
+            field: r.pitch,
+            date,
+            startTime,
+            endTime,
+            bfvImported: false,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            isPending: true,
+          };
+        });
+
+      res.json([...events, ...pendingEvents]);
     } catch (error) {
       console.error("Error loading public calendar events:", error);
       res.status(500).json({ error: "Termine konnten nicht geladen werden" });
