@@ -116,7 +116,7 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto w-[calc(100vw-2rem)] max-w-sm p-4">
         <DialogHeader>
           <DialogTitle>Training vorschlagen</DialogTitle>
         </DialogHeader>
