@@ -13,7 +13,7 @@ import {
   EVENT_REQUEST_STATUSES,
 } from "@shared/schema";
 import { z } from "zod";
-import { sendOrderConfirmation } from "./email";
+import { sendOrderConfirmation, sendEventRequestNotification } from "./email";
 import type { Team, InsertCalendarEvent, Field, EventRequestStatus } from "@shared/schema";
 import multer from "multer";
 import { processAndUploadImage, serveImage } from "./imageUpload";
@@ -261,6 +261,12 @@ export async function registerRoutes(
     try {
       const data = insertEventRequestSchema.parse(req.body);
       const { request } = await createEventRequestWithValidation(data);
+
+      // Admin per E-Mail benachrichtigen (nur beim ersten Termin einer Serie)
+      sendEventRequestNotification(request).catch((err) => {
+        console.error("Admin-Benachrichtigung fehlgeschlagen:", err);
+      });
+
       res.status(201).json(request);
     } catch (error) {
       if (error instanceof z.ZodError) {
