@@ -2,7 +2,7 @@
 node_modules/
 
 # Build-Ausgaben
-dist/
+# dist/ wird committed für Hostinger-Deployment
 build/
 server/public/
 
