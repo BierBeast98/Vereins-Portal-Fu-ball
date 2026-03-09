@@ -115,12 +115,12 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Training vorschlagen</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="space-y-1.5">
             <Label htmlFor="name">Dein Name (Betreuer)</Label>
             <Input
               id="name"
@@ -129,8 +129,10 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
               placeholder="z. B. Max Mustermann"
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="space-y-2">
+
+          {/* Datum + Startzeit nebeneinander */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
               <Label htmlFor="date">Datum</Label>
               <Input
                 id="date"
@@ -140,7 +142,7 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
                 required
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label htmlFor="startTime">Startzeit</Label>
               <Input
                 id="startTime"
@@ -150,21 +152,24 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
                 required
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="duration">Dauer (Minuten)</Label>
-              <Input
-                id="duration"
-                type="number"
-                min={30}
-                max={300}
-                step={15}
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value) || 120)}
-              />
-            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-2">
+
+          {/* Dauer + Platz nebeneinander */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="duration">Dauer (Min.)</Label>
+              <Select value={String(duration)} onValueChange={(v) => setDuration(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[30, 60, 90, 120, 150, 180].map((d) => (
+                    <SelectItem key={d} value={String(d)}>{d} Min.</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label>Platz</Label>
               <Select value={field} onValueChange={(v) => setField(v as Field)}>
                 <SelectTrigger>
@@ -179,7 +184,11 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+          </div>
+
+          {/* Titel + Mannschaft nebeneinander */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
               <Label htmlFor="title">Titel</Label>
               <Input
                 id="title"
@@ -187,34 +196,36 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
                 onChange={(e) => setTitle(e.target.value)}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label>Mannschaft</Label>
+              <Select value={team ?? "_none"} onValueChange={(v) => setTeam(v === "_none" ? undefined : (v as Team))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Mannschaft" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">Keine Angabe</SelectItem>
+                  {TEAMS.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {TEAM_LABELS[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label>Mannschaft (optional)</Label>
-            <Select value={team ?? "_none"} onValueChange={(v) => setTeam(v === "_none" ? undefined : (v as Team))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Mannschaft wählen" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_none">Keine Angabe</SelectItem>
-                {TEAMS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {TEAM_LABELS[t]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
+
+          <div className="space-y-1.5">
             <Label htmlFor="note">Notiz (optional)</Label>
             <Textarea
               id="note"
+              rows={2}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="z. B. Mannschaft, Schwerpunkte, besondere Hinweise"
+              placeholder="z. B. Schwerpunkte, besondere Hinweise"
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <input
                 id="repeatWeekly"
@@ -228,23 +239,22 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
               </Label>
             </div>
             {repeatWeekly && (
-              <div className="space-y-2">
-                <Label htmlFor="repeatUntil">bis (inkl.)</Label>
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <Label htmlFor="repeatUntil" className="text-sm shrink-0">bis</Label>
                 <Input
                   id="repeatUntil"
                   type="date"
                   value={repeatUntil}
                   onChange={(e) => setRepeatUntil(e.target.value)}
                   required={repeatWeekly}
+                  className="flex-1 min-w-0"
                 />
               </div>
             )}
           </div>
 
           {error && (
-            <p className="text-sm text-destructive">
-              {error}
-            </p>
+            <p className="text-sm text-destructive">{error}</p>
           )}
 
           <DialogFooter>
