@@ -77,6 +77,7 @@ function Router() {
     return (
       <ProtectedAdminRoute>
         <Switch>
+          <Route path="/admin" component={() => <Redirect to="/admin/calendar" />} />
           <Route path="/admin/products" component={ProductsPage} />
           <Route path="/admin/campaigns" component={CampaignsPage} />
           <Route path="/admin/orders" component={OrdersPage} />
