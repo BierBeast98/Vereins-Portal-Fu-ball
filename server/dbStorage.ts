@@ -7,6 +7,9 @@ import {
   importWarningsTable,
   adminSettingsTable,
   eventRequestsTable,
+  productsTable,
+  campaignsTable,
+  ordersTable,
   type CalendarEventDb,
   type InsertCalendarEventDb,
   type FieldMappingDb,
@@ -24,6 +27,14 @@ import {
   type Field,
   type EventType,
   type EventRequestStatus,
+  type Product,
+  type InsertProduct,
+  type Campaign,
+  type InsertCampaign,
+  type Order,
+  type InsertOrder,
+  type OrderItem,
+  type Size,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -66,6 +77,24 @@ export interface IDbStorage {
     id: string,
     patch: Partial<InsertEventRequest> & { status?: EventRequestStatus; adminNote?: string; approvedEventId?: string | null }
   ): Promise<EventRequest | null>;
+  // Products
+  getAllProducts(): Promise<Product[]>;
+  getProduct(id: string): Promise<Product | undefined>;
+  createProduct(product: InsertProduct): Promise<Product>;
+  updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product | undefined>;
+  deleteProduct(id: string): Promise<boolean>;
+  // Campaigns
+  getAllCampaigns(): Promise<Campaign[]>;
+  getActiveCampaigns(): Promise<Campaign[]>;
+  getCampaign(id: string): Promise<Campaign | undefined>;
+  createCampaign(campaign: InsertCampaign): Promise<Campaign>;
+  updateCampaign(id: string, campaign: Partial<InsertCampaign>): Promise<Campaign | undefined>;
+  deleteCampaign(id: string): Promise<boolean>;
+  // Orders
+  getAllOrders(): Promise<Order[]>;
+  getOrdersByCampaign(campaignId: string): Promise<Order[]>;
+  getOrder(id: string): Promise<Order | undefined>;
+  createOrder(order: InsertOrder): Promise<Order>;
 }
 
 function dbEventToCalendarEvent(dbEvent: CalendarEventDb): CalendarEvent {
@@ -602,6 +631,196 @@ export class DbStorage implements IDbStorage {
       .returning();
     return row ? dbEventRequestToEventRequest(row) : null;
   }
+
+  // ============ PRODUCTS ============
+
+  async getAllProducts(): Promise<Product[]> {
+    const rows = await db.select().from(productsTable).orderBy(productsTable.createdAt);
+    return rows.map(dbProductToProduct);
+  }
+
+  async getProduct(id: string): Promise<Product | undefined> {
+    const [row] = await db.select().from(productsTable).where(eq(productsTable.id, id));
+    return row ? dbProductToProduct(row) : undefined;
+  }
+
+  async createProduct(data: InsertProduct): Promise<Product> {
+    const id = randomUUID();
+    const [row] = await db.insert(productsTable).values({
+      id,
+      name: data.name,
+      category: data.category,
+      basePrice: data.basePrice,
+      imageUrl: data.imageUrl ?? "",
+      additionalImages: data.additionalImages ?? [],
+      active: data.active ?? true,
+      shortDescription: data.shortDescription ?? null,
+      longDescription: data.longDescription ?? null,
+      brand: data.brand ?? null,
+      season: data.season ?? null,
+      availableSizes: data.availableSizes,
+      initialsEnabled: data.initialsEnabled ?? false,
+      initialsPrice: data.initialsPrice ?? 0,
+      initialsLabel: data.initialsLabel ?? "Initialien",
+    }).returning();
+    return dbProductToProduct(row);
+  }
+
+  async updateProduct(id: string, data: Partial<InsertProduct>): Promise<Product | undefined> {
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.category !== undefined) updateData.category = data.category;
+    if (data.basePrice !== undefined) updateData.basePrice = data.basePrice;
+    if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
+    if (data.additionalImages !== undefined) updateData.additionalImages = data.additionalImages;
+    if (data.active !== undefined) updateData.active = data.active;
+    if (data.shortDescription !== undefined) updateData.shortDescription = data.shortDescription ?? null;
+    if (data.longDescription !== undefined) updateData.longDescription = data.longDescription ?? null;
+    if (data.brand !== undefined) updateData.brand = data.brand ?? null;
+    if (data.season !== undefined) updateData.season = data.season ?? null;
+    if (data.availableSizes !== undefined) updateData.availableSizes = data.availableSizes;
+    if (data.initialsEnabled !== undefined) updateData.initialsEnabled = data.initialsEnabled;
+    if (data.initialsPrice !== undefined) updateData.initialsPrice = data.initialsPrice;
+    if (data.initialsLabel !== undefined) updateData.initialsLabel = data.initialsLabel;
+    const [row] = await db.update(productsTable).set(updateData as any).where(eq(productsTable.id, id)).returning();
+    return row ? dbProductToProduct(row) : undefined;
+  }
+
+  async deleteProduct(id: string): Promise<boolean> {
+    const result = await db.delete(productsTable).where(eq(productsTable.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ============ CAMPAIGNS ============
+
+  async getAllCampaigns(): Promise<Campaign[]> {
+    const rows = await db.select().from(campaignsTable).orderBy(desc(campaignsTable.createdAt));
+    return rows.map(dbCampaignToCampaign);
+  }
+
+  async getActiveCampaigns(): Promise<Campaign[]> {
+    const rows = await db.select().from(campaignsTable).where(eq(campaignsTable.active, true)).orderBy(campaignsTable.startDate);
+    return rows.map(dbCampaignToCampaign);
+  }
+
+  async getCampaign(id: string): Promise<Campaign | undefined> {
+    const [row] = await db.select().from(campaignsTable).where(eq(campaignsTable.id, id));
+    return row ? dbCampaignToCampaign(row) : undefined;
+  }
+
+  async createCampaign(data: InsertCampaign): Promise<Campaign> {
+    const id = randomUUID();
+    const [row] = await db.insert(campaignsTable).values({
+      id,
+      name: data.name,
+      description: data.description,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      active: data.active ?? true,
+      productIds: data.productIds ?? [],
+    }).returning();
+    return dbCampaignToCampaign(row);
+  }
+
+  async updateCampaign(id: string, data: Partial<InsertCampaign>): Promise<Campaign | undefined> {
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.startDate !== undefined) updateData.startDate = data.startDate;
+    if (data.endDate !== undefined) updateData.endDate = data.endDate;
+    if (data.active !== undefined) updateData.active = data.active;
+    if (data.productIds !== undefined) updateData.productIds = data.productIds;
+    const [row] = await db.update(campaignsTable).set(updateData as any).where(eq(campaignsTable.id, id)).returning();
+    return row ? dbCampaignToCampaign(row) : undefined;
+  }
+
+  async deleteCampaign(id: string): Promise<boolean> {
+    const result = await db.delete(campaignsTable).where(eq(campaignsTable.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ============ ORDERS ============
+
+  async getAllOrders(): Promise<Order[]> {
+    const rows = await db.select().from(ordersTable).orderBy(desc(ordersTable.createdAt));
+    return rows.map(dbOrderToOrder);
+  }
+
+  async getOrdersByCampaign(campaignId: string): Promise<Order[]> {
+    const rows = await db.select().from(ordersTable).where(eq(ordersTable.campaignId, campaignId)).orderBy(desc(ordersTable.createdAt));
+    return rows.map(dbOrderToOrder);
+  }
+
+  async getOrder(id: string): Promise<Order | undefined> {
+    const [row] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+    return row ? dbOrderToOrder(row) : undefined;
+  }
+
+  async createOrder(data: InsertOrder): Promise<Order> {
+    const id = randomUUID();
+    const campaign = await this.getCampaign(data.campaignId);
+    const campaignName = campaign?.name ?? "";
+    const totalAmount = (data.items as any[]).reduce((sum: number, item: any) => sum + (item.totalPrice ?? 0), 0);
+    const [row] = await db.insert(ordersTable).values({
+      id,
+      campaignId: data.campaignId,
+      campaignName,
+      email: data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      items: data.items as any,
+      totalAmount,
+    }).returning();
+    return dbOrderToOrder(row);
+  }
+}
+
+// ============ DB → Domain helpers ============
+
+function dbProductToProduct(row: typeof productsTable.$inferSelect): Product {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    basePrice: row.basePrice,
+    imageUrl: row.imageUrl,
+    additionalImages: (row.additionalImages as string[]) ?? [],
+    active: row.active,
+    shortDescription: row.shortDescription ?? undefined,
+    longDescription: row.longDescription ?? undefined,
+    brand: row.brand ?? undefined,
+    season: row.season ?? undefined,
+    availableSizes: (row.availableSizes as Size[]) ?? [],
+    initialsEnabled: row.initialsEnabled,
+    initialsPrice: row.initialsPrice,
+    initialsLabel: row.initialsLabel,
+  };
+}
+
+function dbCampaignToCampaign(row: typeof campaignsTable.$inferSelect): Campaign {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    active: row.active,
+    productIds: (row.productIds as string[]) ?? [],
+  };
+}
+
+function dbOrderToOrder(row: typeof ordersTable.$inferSelect): Order {
+  return {
+    id: row.id,
+    campaignId: row.campaignId,
+    campaignName: row.campaignName,
+    email: row.email,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    items: (row.items as OrderItem[]) ?? [],
+    totalAmount: row.totalAmount,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 export const dbStorage = new DbStorage();

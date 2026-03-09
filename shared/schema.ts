@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, varchar, text, integer, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, boolean, timestamp, jsonb, unique, index, doublePrecision } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 
@@ -109,6 +109,53 @@ export const eventRequestsTable = pgTable("event_requests", {
 export const adminSettingsTable = pgTable("admin_settings", {
   key: varchar("key", { length: 100 }).primaryKey(),
   value: text("value").notNull(),
+});
+
+// Products table - persistent storage for shop products
+export const productsTable = pgTable("products", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 500 }).notNull(),
+  category: varchar("category", { length: 255 }).notNull(),
+  basePrice: doublePrecision("base_price").notNull().default(0),
+  imageUrl: text("image_url").notNull().default(""),
+  additionalImages: jsonb("additional_images").notNull().default([]),
+  active: boolean("active").notNull().default(true),
+  shortDescription: text("short_description"),
+  longDescription: text("long_description"),
+  brand: varchar("brand", { length: 255 }),
+  season: varchar("season", { length: 100 }),
+  availableSizes: jsonb("available_sizes").notNull().default([]),
+  initialsEnabled: boolean("initials_enabled").notNull().default(false),
+  initialsPrice: doublePrecision("initials_price").notNull().default(0),
+  initialsLabel: varchar("initials_label", { length: 255 }).notNull().default("Initialien"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Campaigns table - persistent storage for order campaigns
+export const campaignsTable = pgTable("campaigns", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 500 }).notNull(),
+  description: text("description").notNull(),
+  startDate: varchar("start_date", { length: 10 }).notNull(),
+  endDate: varchar("end_date", { length: 10 }).notNull(),
+  active: boolean("active").notNull().default(true),
+  productIds: jsonb("product_ids").notNull().default([]),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Orders table - persistent storage for orders
+export const ordersTable = pgTable("orders", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id", { length: 36 }).notNull(),
+  campaignName: varchar("campaign_name", { length: 500 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  firstName: varchar("first_name", { length: 255 }).notNull(),
+  lastName: varchar("last_name", { length: 255 }).notNull(),
+  items: jsonb("items").notNull().default([]),
+  totalAmount: doublePrecision("total_amount").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Drizzle insert schemas

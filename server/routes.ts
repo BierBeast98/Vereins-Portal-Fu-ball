@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
 import { dbStorage } from "./dbStorage";
+import rateLimit from "express-rate-limit";
 import { parseStartEndInBerlin } from "./dateTimeBerlin";
 import { 
   insertProductSchema, 
@@ -36,20 +36,51 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// ============================================
+// RATE LIMITING
+// ============================================
+
+// Login: max 10 Versuche pro 15 Minuten pro IP → Brute-Force-Schutz
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 Minuten
+  max: 10,
+  message: { error: "Zu viele Login-Versuche. Bitte warte 15 Minuten." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Erfolgreiche Logins zählen nicht mit
+});
+
+// API allgemein: max 200 Anfragen pro Minute pro IP → DoS-Schutz
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 Minute
+  max: 200,
+  message: { error: "Zu viele Anfragen. Bitte warte kurz." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Allgemeines Rate Limiting für alle API-Endpunkte
+  app.use("/api/", apiLimiter);
+
   // Auth endpoints
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", loginLimiter, async (req, res) => {
     try {
       const { password } = req.body;
-      const adminPassword = await storage.getAdminPassword();
-      
+      if (!password || typeof password !== "string") {
+        return res.status(400).json({ error: "Passwort erforderlich" });
+      }
+      const adminPassword = await dbStorage.getAdminPassword();
+
       if (password === adminPassword) {
         req.session.isAdmin = true;
         res.json({ success: true });
       } else {
+        // Absichtliche kleine Verzögerung bei falschem Passwort (Timing-Angriff)
+        await new Promise((r) => setTimeout(r, 300));
         res.status(401).json({ error: "Falsches Passwort" });
       }
     } catch (error) {
@@ -73,17 +104,17 @@ export async function registerRoutes(
   app.post("/api/auth/change-password", requireAdmin, async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
-      const adminPassword = await storage.getAdminPassword();
-      
+      const adminPassword = await dbStorage.getAdminPassword();
+
       if (currentPassword !== adminPassword) {
         return res.status(401).json({ error: "Aktuelles Passwort ist falsch" });
       }
-      
-      if (!newPassword || newPassword.length < 1) {
-        return res.status(400).json({ error: "Neues Passwort ist erforderlich" });
+
+      if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
+        return res.status(400).json({ error: "Neues Passwort muss mindestens 8 Zeichen haben" });
       }
-      
-      await storage.setAdminPassword(newPassword);
+
+      await dbStorage.setAdminPassword(newPassword);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Passwortänderung fehlgeschlagen" });
@@ -93,7 +124,7 @@ export async function registerRoutes(
   // Products CRUD (protected)
   app.get("/api/products", async (req, res) => {
     try {
-      const products = await storage.getAllProducts();
+      const products = await dbStorage.getAllProducts();
       res.json(products);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch products" });
@@ -102,7 +133,7 @@ export async function registerRoutes(
 
   app.get("/api/products/:id", async (req, res) => {
     try {
-      const product = await storage.getProduct(req.params.id);
+      const product = await dbStorage.getProduct(req.params.id);
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -115,7 +146,7 @@ export async function registerRoutes(
   app.post("/api/products", requireAdmin, async (req, res) => {
     try {
       const data = insertProductSchema.parse(req.body);
-      const product = await storage.createProduct(data);
+      const product = await dbStorage.createProduct(data);
       res.status(201).json(product);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -128,7 +159,7 @@ export async function registerRoutes(
   app.patch("/api/products/:id", requireAdmin, async (req, res) => {
     try {
       const data = insertProductSchema.partial().parse(req.body);
-      const product = await storage.updateProduct(req.params.id as string, data);
+      const product = await dbStorage.updateProduct(req.params.id as string, data);
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -143,7 +174,7 @@ export async function registerRoutes(
 
   app.delete("/api/products/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteProduct(req.params.id as string);
+      const deleted = await dbStorage.deleteProduct(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -156,7 +187,7 @@ export async function registerRoutes(
   // Campaigns CRUD
   app.get("/api/campaigns", async (req, res) => {
     try {
-      const campaigns = await storage.getAllCampaigns();
+      const campaigns = await dbStorage.getAllCampaigns();
       res.json(campaigns);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch campaigns" });
@@ -165,7 +196,7 @@ export async function registerRoutes(
 
   app.get("/api/campaigns/active", async (req, res) => {
     try {
-      const campaigns = await storage.getActiveCampaigns();
+      const campaigns = await dbStorage.getActiveCampaigns();
       res.json(campaigns);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch active campaigns" });
@@ -242,7 +273,7 @@ export async function registerRoutes(
 
   app.get("/api/campaigns/:id", async (req, res) => {
     try {
-      const campaign = await storage.getCampaign(req.params.id);
+      const campaign = await dbStorage.getCampaign(req.params.id);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -255,7 +286,7 @@ export async function registerRoutes(
   app.post("/api/campaigns", requireAdmin, async (req, res) => {
     try {
       const data = insertCampaignSchema.parse(req.body);
-      const campaign = await storage.createCampaign(data);
+      const campaign = await dbStorage.createCampaign(data);
       res.status(201).json(campaign);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -268,7 +299,7 @@ export async function registerRoutes(
   app.patch("/api/campaigns/:id", requireAdmin, async (req, res) => {
     try {
       const data = insertCampaignSchema.partial().parse(req.body);
-      const campaign = await storage.updateCampaign(req.params.id as string, data);
+      const campaign = await dbStorage.updateCampaign(req.params.id as string, data);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -283,7 +314,7 @@ export async function registerRoutes(
 
   app.delete("/api/campaigns/:id", requireAdmin, async (req, res) => {
     try {
-      const deleted = await storage.deleteCampaign(req.params.id as string);
+      const deleted = await dbStorage.deleteCampaign(req.params.id as string);
       if (!deleted) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -296,7 +327,7 @@ export async function registerRoutes(
   // Orders (admin only for viewing)
   app.get("/api/orders", requireAdmin, async (req, res) => {
     try {
-      const orders = await storage.getAllOrders();
+      const orders = await dbStorage.getAllOrders();
       res.json(orders);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch orders" });
@@ -305,7 +336,7 @@ export async function registerRoutes(
 
   app.get("/api/orders/campaign/:campaignId", requireAdmin, async (req, res) => {
     try {
-      const orders = await storage.getOrdersByCampaign(req.params.campaignId as string);
+      const orders = await dbStorage.getOrdersByCampaign(req.params.campaignId as string);
       res.json(orders);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch orders" });
@@ -315,7 +346,7 @@ export async function registerRoutes(
   app.post("/api/orders", async (req, res) => {
     try {
       const data = insertOrderSchema.parse(req.body);
-      const order = await storage.createOrder(data);
+      const order = await dbStorage.createOrder(data);
       
       // Send confirmation email (don't wait for it, don't fail if it fails)
       sendOrderConfirmation(order).catch((err) => {
@@ -335,8 +366,8 @@ export async function registerRoutes(
   app.get("/api/orders/export/:campaignId", requireAdmin, async (req, res) => {
     try {
       const campaignId = req.params.campaignId as string;
-      const orders = await storage.getOrdersByCampaign(campaignId);
-      const campaign = await storage.getCampaign(campaignId);
+      const orders = await dbStorage.getOrdersByCampaign(campaignId);
+      const campaign = await dbStorage.getCampaign(campaignId);
 
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });

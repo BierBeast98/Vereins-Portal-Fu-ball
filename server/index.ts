@@ -5,12 +5,14 @@ config({ path: join(process.cwd(), ".env") });
 
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
+import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
 const app = express();
 const httpServer = createServer(app);
+const isProduction = process.env.NODE_ENV === "production";
 
 declare module "http" {
   interface IncomingMessage {
@@ -24,15 +26,61 @@ declare module "express-session" {
   }
 }
 
+// ============================================
+// SECURITY HEADERS (Helmet)
+// ============================================
+app.use(
+  helmet({
+    // Content Security Policy – erlaubt nur eigene Ressourcen + Google Fonts
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Vite/React benötigt dies in dev
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https://storage.googleapis.com"],
+        connectSrc: ["'self'"],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+      },
+    },
+    // Verhindert Clickjacking (Website kann nicht in iFrame eingebettet werden)
+    frameguard: { action: "deny" },
+    // Erzwingt HTTPS (6 Monate)
+    hsts: isProduction ? { maxAge: 15552000, includeSubDomains: true } : false,
+    // Versteckt "X-Powered-By: Express" Header
+    hidePoweredBy: true,
+    // Verhindert MIME-Type Sniffing
+    noSniff: true,
+    // XSS-Filter im Browser aktivieren
+    xssFilter: true,
+    // Referrer nur an gleiche Domain
+    referrerPolicy: { policy: "same-origin" },
+  })
+);
+
+// ============================================
+// SESSION
+// ============================================
+const sessionSecret = process.env.SESSION_SECRET;
+if (isProduction && !sessionSecret) {
+  console.error("FATAL: SESSION_SECRET muss in der Produktionsumgebung gesetzt sein!");
+  process.exit(1);
+}
+
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "tsv-bestellportal-secret-key",
+    secret: sessionSecret || "tsv-dev-secret-not-for-production",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      // Nur über HTTPS in Produktion – verhindert Cookie-Diebstahl über HTTP
+      secure: isProduction,
+      // JavaScript kann das Cookie nicht lesen – schützt vor XSS
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      // Cookie gilt nur für gleiche Domain
+      sameSite: "strict",
+      maxAge: 24 * 60 * 60 * 1000, // 24 Stunden
     },
   })
 );
@@ -42,10 +90,12 @@ app.use(
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
+    // Maximal 1MB JSON-Body – verhindert DoS durch riesige Payloads
+    limit: "1mb",
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -73,7 +123,8 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // In Produktion keine Response-Daten loggen (Datenschutz)
+      if (!isProduction && capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -89,9 +140,16 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // In Produktion keine internen Fehlermeldungen nach außen geben
+    const message = isProduction
+      ? (status < 500 ? err.message : "Internal Server Error")
+      : (err.message || "Internal Server Error");
 
-    console.error("Internal Server Error:", err);
+    if (!isProduction) {
+      console.error("Internal Server Error:", err);
+    } else {
+      console.error(`[${status}] ${req?.path ?? ""}: ${err.message}`);
+    }
 
     if (res.headersSent) {
       return next(err);
@@ -100,22 +158,18 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
+  if (isProduction) {
     serveStatic(app);
   } else {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
+    if (isProduction) {
+      log("🔒 Security: Helmet, Secure Cookies, Rate Limiting aktiv");
+    }
   });
 })();
