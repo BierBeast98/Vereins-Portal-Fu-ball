@@ -96,6 +96,7 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
           : "Deine Trainingszeit wurde als Vorschlag gespeichert und muss vom Admin freigegeben werden.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/calendar/fields"] });
       onOpenChange(false);
       setError(null);
     },
