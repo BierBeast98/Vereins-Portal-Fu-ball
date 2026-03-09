@@ -59,13 +59,10 @@ function MonthGrid({
   }
 
   return (
-    <div className="select-none">
-      <h3 className="text-sm font-semibold text-center mb-2 text-foreground">
-        {format(firstDay, "MMMM", { locale: de })}
-      </h3>
+    <div className="select-none w-full">
       <div className="grid grid-cols-7 gap-0">
         {WEEKDAYS.map((d) => (
-          <div key={d} className="text-[10px] text-muted-foreground text-center py-0.5 font-medium">
+          <div key={d} className="text-xs text-muted-foreground text-center py-1 font-medium">
             {d}
           </div>
         ))}
@@ -77,24 +74,24 @@ function MonthGrid({
           const dayEvents = eventsByDate.get(dateKey) ?? [];
           const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
           const isToday = isSameDay(day, new Date());
-          // Max 3 Punkte, je ein Punkt pro einzigartiger Team+Typ-Kombination
+          // Max 4 Punkte, je ein Punkt pro einzigartiger Team+Typ-Kombination
           const dots = Array.from(
             new Map(dayEvents.map((e) => [`${e.team}-${e.type}`, e])).values()
-          ).slice(0, 3);
+          ).slice(0, 4);
 
           return (
             <button
               key={dateKey}
               onClick={() => dayEvents.length > 0 && onSelectDate(day)}
               className={cn(
-                "flex flex-col items-center justify-start py-0.5 rounded text-[11px] font-medium transition-colors",
+                "flex flex-col items-center justify-start py-1 sm:py-2 rounded text-sm font-medium transition-colors",
                 dayEvents.length > 0 ? "cursor-pointer hover:bg-accent" : "cursor-default",
                 isSelected && "bg-primary text-primary-foreground hover:bg-primary",
                 isToday && !isSelected && "ring-1 ring-primary rounded"
               )}
             >
               <span>{format(day, "d")}</span>
-              <div className="flex gap-0.5 mt-0.5 h-1.5">
+              <div className="flex flex-wrap justify-center gap-0.5 mt-0.5">
                 {dots.map((e, i) => (
                   <span
                     key={i}
@@ -179,8 +176,6 @@ export function YearCalendarOverview() {
     },
   });
 
-  const months = Array.from({ length: 12 }, (_, i) => i);
-
   function prevMonth() {
     if (currentMonth === 0) {
       setYear((y) => y - 1);
@@ -233,81 +228,44 @@ export function YearCalendarOverview() {
 
   return (
     <div className="space-y-4">
-      {/* Mobile: Ein-Monat-Ansicht */}
-      <div className="sm:hidden space-y-4">
-        <div className="flex items-center justify-between">
-          <Button variant="ghost" size="sm" onClick={prevMonth}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="font-semibold text-lg">
-            {format(new Date(year, currentMonth), "MMMM yyyy", { locale: de })}
-          </span>
-          <Button variant="ghost" size="sm" onClick={nextMonth}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-        {legend}
-        {isLoading ? (
-          <div className="h-36 rounded-lg bg-muted animate-pulse" />
-        ) : (
-          <MonthGrid
-            year={year}
-            month={currentMonth}
-            events={events}
-            selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
-          />
-        )}
-        {eventDetail}
+      {/* Navigation */}
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={prevMonth}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="font-semibold text-lg">
+          {format(new Date(year, currentMonth), "MMMM yyyy", { locale: de })}
+        </span>
+        <Button variant="ghost" size="sm" onClick={nextMonth}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
       </div>
 
-      {/* Desktop: Jahres-Grid */}
-      <div className="hidden sm:block space-y-4">
-        <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setYear((y) => y - 1);
-              setSelectedDate(null);
-            }}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="font-semibold text-lg">{year}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setYear((y) => y + 1);
-              setSelectedDate(null);
-            }}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+      {/* Legende */}
+      {legend}
+
+      {/* Kalender + Detail nebeneinander auf Desktop */}
+      <div className="sm:flex sm:gap-6">
+        <div className="sm:flex-1">
+          {isLoading ? (
+            <div className="h-64 rounded-lg bg-muted animate-pulse" />
+          ) : (
+            <MonthGrid
+              year={year}
+              month={currentMonth}
+              events={events}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+            />
+          )}
         </div>
-        {legend}
-        {isLoading ? (
-          <div className="grid sm:grid-cols-3 md:grid-cols-4 gap-6">
-            {months.map((m) => (
-              <div key={m} className="h-36 rounded-lg bg-muted animate-pulse" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-8">
-            {months.map((m) => (
-              <MonthGrid
-                key={m}
-                year={year}
-                month={m}
-                events={events}
-                selectedDate={selectedDate}
-                onSelectDate={setSelectedDate}
-              />
-            ))}
+
+        {/* Event-Detail rechts neben dem Kalender auf Desktop, darunter auf Mobile */}
+        {selectedDate && (
+          <div className="mt-4 sm:mt-0 sm:w-80">
+            {eventDetail}
           </div>
         )}
-        {eventDetail}
       </div>
     </div>
   );
