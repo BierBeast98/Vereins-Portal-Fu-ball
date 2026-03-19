@@ -11,16 +11,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Plus, 
-  Download, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Download,
   AlertTriangle,
   Trash2,
   ArrowLeft,
   Repeat,
-  RefreshCw
+  RefreshCw,
+  Home,
+  MapPin,
+  Trophy,
+  ChevronDown,
+  ChevronUp,
+  Bus
 } from "lucide-react";
 import type { 
   CalendarEvent, 
@@ -122,6 +128,8 @@ function EventDialog({
     isRecurring: false,
     recurringEndDate: "",
   });
+
+  const [showRawData, setShowRawData] = useState(false);
 
   // Calculate weekday name for selected date
   const selectedWeekday = useMemo(() => {
@@ -283,165 +291,189 @@ function EventDialog({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 min-w-0 overflow-hidden flex flex-col">
-      <div className="grid gap-4 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
-        <div className="col-span-2 min-w-0">
-          <Label htmlFor="title">Titel</Label>
-          <Input
-            id="title"
-            value={formData.title}
-            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-            placeholder="z.B. Herren Training"
-            required
-            data-testid="input-event-title"
-          />
-        </div>
 
-        <div className="min-w-0">
-          <Label htmlFor="type">Terminart</Label>
-          <Select
-            value={formData.type}
-            onValueChange={(value: EventType) => setFormData({ ...formData, type: value })}
-          >
-            <SelectTrigger data-testid="select-event-type">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EVENT_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {EVENT_TYPE_LABELS[type]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="min-w-0">
-          <Label htmlFor="team">Mannschaft</Label>
-          <Select
-            value={formData.team || "none"}
-            onValueChange={(value) => setFormData({ ...formData, team: value === "none" ? undefined : value as Team })}
-          >
-            <SelectTrigger data-testid="select-event-team">
-              <SelectValue placeholder="Optional" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Keine</SelectItem>
-              {TEAMS.map((team) => (
-                <SelectItem key={team} value={team}>
-                  {TEAM_LABELS[team]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="min-w-0">
-          <Label htmlFor="field">Platz</Label>
-          <Select
-            value={formData.field || "none"}
-            onValueChange={(value) => setFormData({ ...formData, field: value === "none" ? undefined : value as Field })}
-          >
-            <SelectTrigger data-testid="select-event-field">
-              <SelectValue placeholder="Optional" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Kein Platz</SelectItem>
-              {FIELDS.map((field) => (
-                <SelectItem key={field} value={field}>
-                  {FIELD_LABELS[field]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="min-w-0">
-          <Label htmlFor="date">Datum</Label>
-          <Input
-            id="date"
-            type="date"
-            value={formData.date}
-            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-            required
-            data-testid="input-event-date"
-          />
-        </div>
-
-        <div className="min-w-0">
-          <Label htmlFor="startTime">Startzeit</Label>
-          <Input
-            id="startTime"
-            type="time"
-            value={formData.startTime}
-            onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-            required
-            data-testid="input-event-start"
-          />
-        </div>
-
-        <div className="min-w-0">
-          <Label htmlFor="endTime">Endzeit</Label>
-          <Input
-            id="endTime"
-            type="time"
-            value={formData.endTime}
-            onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-            required
-            data-testid="input-event-end"
-          />
-        </div>
-
-        {/* Recurring event options - only show for new events, not for editing */}
-        {!event && (
-          <div className="col-span-2 border rounded-lg p-3 bg-muted/30">
-            <div className="flex items-center gap-3 mb-2">
-              <Switch
-                id="isRecurring"
-                checked={formData.isRecurring}
-                onCheckedChange={(checked) => setFormData({ ...formData, isRecurring: checked })}
-                data-testid="switch-recurring"
-              />
-              <Label htmlFor="isRecurring" className="font-medium">
-                Wiederkehrender Termin
-              </Label>
-            </div>
-            
-            {formData.isRecurring && (
-              <div className="space-y-2 mt-3">
-                <p className="text-sm text-muted-foreground">
-                  Jeden <span className="font-semibold text-foreground">{selectedWeekday}</span> wiederholen bis:
-                </p>
-                <Input
-                  id="recurringEndDate"
-                  type="date"
-                  value={formData.recurringEndDate}
-                  onChange={(e) => setFormData({ ...formData, recurringEndDate: e.target.value })}
-                  min={formData.date}
-                  required={formData.isRecurring}
-                  data-testid="input-recurring-end"
-                />
-                {recurringCount > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    Es werden <span className="font-semibold text-primary">{recurringCount} Termine</span> erstellt.
-                  </p>
-                )}
-              </div>
+      {/* Game summary card – shown only when type is "spiel" */}
+      {formData.type === "spiel" && (
+        <div className="rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${formData.isHomeGame ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"}`}>
+              {formData.isHomeGame ? <Home className="h-3.5 w-3.5" /> : <Bus className="h-3.5 w-3.5" />}
+              {formData.isHomeGame ? "Heimspiel" : "Auswärtsspiel"}
+            </span>
+            {formData.competition && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Trophy className="h-3 w-3" />
+                {formData.competition}
+              </span>
             )}
           </div>
-        )}
+          <div className="flex items-center justify-center gap-3 py-1">
+            <span className="font-semibold text-sm truncate text-right flex-1">
+              {formData.isHomeGame
+                ? (formData.team ? TEAM_LABELS[formData.team as Team] || formData.team : "Heimteam")
+                : (formData.opponent || "Gegner")}
+            </span>
+            <span className="text-muted-foreground font-bold text-base shrink-0">VS</span>
+            <span className="font-semibold text-sm truncate text-left flex-1">
+              {formData.isHomeGame
+                ? (formData.opponent || "Gegner")
+                : (formData.team ? TEAM_LABELS[formData.team as Team] || formData.team : "Heimteam")}
+            </span>
+          </div>
+          {formData.date && (
+            <p className="text-center text-xs text-muted-foreground mt-1">
+              {formData.date.split("-").reverse().join(".")}
+              {formData.startTime && ` · ${formData.startTime}`}
+              {formData.endTime && ` – ${formData.endTime}`}
+              {!formData.isHomeGame && formData.location && (
+                <span className="ml-1 inline-flex items-center gap-0.5"><MapPin className="h-3 w-3 inline" />{formData.location}</span>
+              )}
+            </p>
+          )}
+        </div>
+      )}
 
-        {formData.type === "spiel" && (
-          <>
-            <div className="col-span-2 flex items-center gap-3">
-              <Switch
-                id="isHomeGame"
-                checked={formData.isHomeGame}
-                onCheckedChange={(checked) => setFormData({ ...formData, isHomeGame: checked })}
-                data-testid="switch-home-game"
-              />
-              <Label htmlFor="isHomeGame">Heimspiel</Label>
-            </div>
+      {/* Section: Grunddaten */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Grunddaten</p>
+        <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
+          <div className="col-span-2 min-w-0">
+            <Label htmlFor="title">Titel</Label>
+            <Input
+              id="title"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              placeholder="z.B. Herren Training"
+              required
+              data-testid="input-event-title"
+            />
+          </div>
+          <div className="min-w-0">
+            <Label htmlFor="type">Terminart</Label>
+            <Select
+              value={formData.type}
+              onValueChange={(value: EventType) => setFormData({ ...formData, type: value })}
+            >
+              <SelectTrigger data-testid="select-event-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EVENT_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {EVENT_TYPE_LABELS[type]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-0">
+            <Label htmlFor="team">Mannschaft</Label>
+            <Select
+              value={formData.team || "none"}
+              onValueChange={(value) => setFormData({ ...formData, team: value === "none" ? undefined : value as Team })}
+            >
+              <SelectTrigger data-testid="select-event-team">
+                <SelectValue placeholder="Optional" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Keine</SelectItem>
+                {TEAMS.map((team) => (
+                  <SelectItem key={team} value={team}>
+                    {TEAM_LABELS[team]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-0">
+            <Label htmlFor="field">Platz</Label>
+            <Select
+              value={formData.field || "none"}
+              onValueChange={(value) => setFormData({ ...formData, field: value === "none" ? undefined : value as Field })}
+            >
+              <SelectTrigger data-testid="select-event-field">
+                <SelectValue placeholder="Optional" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Kein Platz</SelectItem>
+                {FIELDS.map((field) => (
+                  <SelectItem key={field} value={field}>
+                    {FIELD_LABELS[field]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
 
+      {/* Section: Zeit */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Zeit</p>
+        <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)" }}>
+          <div className="min-w-0">
+            <Label htmlFor="date">Datum</Label>
+            <Input
+              id="date"
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+              required
+              data-testid="input-event-date"
+            />
+          </div>
+          <div className="min-w-0">
+            <Label htmlFor="startTime">Startzeit</Label>
+            <Input
+              id="startTime"
+              type="time"
+              value={formData.startTime}
+              onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+              required
+              data-testid="input-event-start"
+            />
+          </div>
+          <div className="min-w-0">
+            <Label htmlFor="endTime">Endzeit</Label>
+            <Input
+              id="endTime"
+              type="time"
+              value={formData.endTime}
+              onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+              required
+              data-testid="input-event-end"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Section: Spieldetails – only for "spiel" */}
+      {formData.type === "spiel" && (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spieldetails</p>
+
+          {/* Home/Away segmented toggle */}
+          <div className="flex rounded-md border border-input overflow-hidden w-full" role="group" aria-label="Heim oder Auswärts">
+            <button
+              type="button"
+              onClick={() => setFormData({ ...formData, isHomeGame: true })}
+              data-testid="switch-home-game"
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${formData.isHomeGame ? "bg-green-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+            >
+              <Home className="h-4 w-4" />
+              Heimspiel
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormData({ ...formData, isHomeGame: false })}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${!formData.isHomeGame ? "bg-orange-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+            >
+              <Bus className="h-4 w-4" />
+              Auswärtsspiel
+            </button>
+          </div>
+
+          <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
             <div className="min-w-0">
               <Label htmlFor="opponent">Gegner</Label>
               <Input
@@ -452,7 +484,6 @@ function EventDialog({
                 data-testid="input-opponent"
               />
             </div>
-
             <div className="min-w-0">
               <Label htmlFor="competition">Wettbewerb</Label>
               <Input
@@ -463,48 +494,99 @@ function EventDialog({
                 data-testid="input-competition"
               />
             </div>
-          </>
-        )}
-
-        {!formData.isHomeGame && formData.type === "spiel" && (
-          <div className="col-span-2">
-            <Label htmlFor="location">Spielort</Label>
-            <Input
-              id="location"
-              value={formData.location}
-              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-              placeholder="Adresse des Spielorts"
-              data-testid="input-location"
-            />
           </div>
-        )}
 
-        <div className="col-span-2 min-w-0">
-          <Label htmlFor="description">Beschreibung</Label>
-          <Textarea
-            id="description"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            placeholder="Optionale Beschreibung..."
-            rows={2}
-            data-testid="input-description"
-          />
+          {!formData.isHomeGame && (
+            <div className="min-w-0">
+              <Label htmlFor="location">
+                <MapPin className="h-3.5 w-3.5 inline mr-1 text-muted-foreground" />
+                Spielort
+              </Label>
+              <Input
+                id="location"
+                value={formData.location}
+                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                placeholder="Adresse des Spielorts"
+                data-testid="input-location"
+              />
+            </div>
+          )}
         </div>
+      )}
 
-        {/* Rohdaten vom BFV-Import (nur bei BFV-Events mit gespeichertem Payload) */}
-        {event?.bfvImported && event?.rawPayload != null && (
-          <div className="col-span-2 min-w-0 rounded-lg border bg-muted/30 p-3">
-            <Label className="text-muted-foreground font-normal">Rohdaten vom BFV (vor Verarbeitung)</Label>
-            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background p-2 text-xs" data-testid="raw-payload">
+      {/* Section: Wiederkehrender Termin – only for new events */}
+      {!event && (
+        <div className="rounded-lg border p-3 bg-muted/30 space-y-2">
+          <div className="flex items-center gap-3">
+            <Switch
+              id="isRecurring"
+              checked={formData.isRecurring}
+              onCheckedChange={(checked) => setFormData({ ...formData, isRecurring: checked })}
+              data-testid="switch-recurring"
+            />
+            <Label htmlFor="isRecurring" className="font-medium">
+              Wiederkehrender Termin
+            </Label>
+          </div>
+          {formData.isRecurring && (
+            <div className="space-y-2 pt-1">
+              <p className="text-sm text-muted-foreground">
+                Jeden <span className="font-semibold text-foreground">{selectedWeekday}</span> wiederholen bis:
+              </p>
+              <Input
+                id="recurringEndDate"
+                type="date"
+                value={formData.recurringEndDate}
+                onChange={(e) => setFormData({ ...formData, recurringEndDate: e.target.value })}
+                min={formData.date}
+                required={formData.isRecurring}
+                data-testid="input-recurring-end"
+              />
+              {recurringCount > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Es werden <span className="font-semibold text-primary">{recurringCount} Termine</span> erstellt.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Section: Beschreibung */}
+      <div className="space-y-1 min-w-0">
+        <Label htmlFor="description">Beschreibung</Label>
+        <Textarea
+          id="description"
+          value={formData.description}
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          placeholder="Optionale Beschreibung..."
+          rows={2}
+          data-testid="input-description"
+        />
+      </div>
+
+      {/* BFV Rohdaten – collapsible, collapsed by default */}
+      {event?.bfvImported && event?.rawPayload != null && (
+        <div className="rounded-lg border bg-muted/20 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowRawData((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
+          >
+            <span className="font-medium">Rohdaten vom BFV</span>
+            {showRawData ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {showRawData && (
+            <pre className="px-3 pb-3 max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs" data-testid="raw-payload">
               {typeof event.rawPayload === "object"
                 ? JSON.stringify(event.rawPayload, null, 2)
                 : String(event.rawPayload)}
             </pre>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* Show indicator for recurring events */}
+      {/* Recurring series indicator */}
       {event?.recurringGroupId && (
         <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
           <Repeat className="h-4 w-4" />
@@ -512,7 +594,8 @@ function EventDialog({
         </div>
       )}
 
-      <div className="flex justify-between gap-2 pt-4 flex-shrink-0 pb-2">
+      {/* Action buttons */}
+      <div className="flex justify-between gap-2 pt-2 flex-shrink-0 pb-2">
         {event && (
           <div className="flex gap-2">
             {event.recurringGroupId ? (
@@ -560,8 +643,8 @@ function EventDialog({
           </Button>
           {event?.recurringGroupId ? (
             <>
-              <Button 
-                type="button" 
+              <Button
+                type="button"
                 variant="secondary"
                 onClick={() => updateMutation.mutate({
                   title: formData.title,
@@ -577,12 +660,12 @@ function EventDialog({
                   competition: formData.competition || undefined,
                   description: formData.description || undefined,
                 })}
-                disabled={isPending} 
+                disabled={isPending}
                 data-testid="button-save-event"
               >
                 Nur diesen speichern
               </Button>
-              <Button 
+              <Button
                 type="button"
                 onClick={() => updateRecurringGroupMutation.mutate({
                   title: formData.title,
@@ -597,7 +680,7 @@ function EventDialog({
                   competition: formData.competition || undefined,
                   description: formData.description || undefined,
                 })}
-                disabled={isPending} 
+                disabled={isPending}
                 data-testid="button-save-all-recurring"
               >
                 Alle speichern
