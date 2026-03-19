@@ -290,7 +290,7 @@ function EventDialog({
   }, [formData.isRecurring, formData.date, formData.recurringEndDate]);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 min-w-0 overflow-hidden flex flex-col">
+    <form onSubmit={handleSubmit} className="space-y-4 min-w-0 flex flex-col">
 
       {/* Game summary card – shown only when type is "spiel" */}
       {formData.type === "spiel" && (
@@ -989,7 +989,7 @@ export default function CalendarPage() {
 
     return (
       <div className="space-y-4">
-        <div className="flex gap-1 overflow-x-auto">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {monthsToShow.map(renderMonthColumn)}
         </div>
       </div>
