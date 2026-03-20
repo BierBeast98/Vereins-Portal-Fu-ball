@@ -18,7 +18,8 @@ function toTimeStr(date: Date): string {
 export async function checkFieldConflicts(
   pitch: Field,
   startAt: Date,
-  endAt: Date
+  endAt: Date,
+  excludeEventId?: string
 ): Promise<{ hasConflict: boolean; conflicts: { id: string; title: string; date: string; startTime: string; endTime: string }[] }> {
   const startDate = toDateOnly(startAt);
   const endDate = toDateOnly(endAt);
@@ -28,6 +29,7 @@ export async function checkFieldConflicts(
   const end = endAt.getTime();
 
   const conflicts = events.filter((e) => {
+    if (excludeEventId && e.id === excludeEventId) return false;
     const eStartParts = e.startTime.split(":").map(Number);
     const eEndParts = e.endTime.split(":").map(Number);
     const d = new Date(e.date + "T00:00:00");
@@ -107,7 +109,9 @@ export async function approveEventRequest(
   }
 
   if (!patch.force) {
-    const { hasConflict, conflicts } = await checkFieldConflicts(pitch, startAt, endAt);
+    // For change_request: exclude the target event itself from conflict check
+    const excludeId = existing.type === "change_request" ? existing.targetEventId : undefined;
+    const { hasConflict, conflicts } = await checkFieldConflicts(pitch, startAt, endAt, excludeId ?? undefined);
     if (hasConflict) {
       const error: any = new Error("Konflikt mit bestehenden Terminen");
       error.code = "CONFLICT";
