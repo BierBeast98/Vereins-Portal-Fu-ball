@@ -800,6 +800,7 @@ export async function registerRoutes(
         ...base,
         adminNote: typeof body?.adminNote === "string" ? body.adminNote : undefined,
         recurringGroupId: typeof body?.recurringGroupId === "string" ? body.recurringGroupId : undefined,
+        force: body?.force === true,
       });
       res.json({ request, event });
     } catch (error) {

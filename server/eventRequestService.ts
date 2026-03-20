@@ -57,7 +57,7 @@ export async function createEventRequestWithValidation(data: InsertEventRequest)
 
 export async function approveEventRequest(
   id: string,
-  patch: Partial<InsertEventRequest> & { adminNote?: string; recurringGroupId?: string }
+  patch: Partial<InsertEventRequest> & { adminNote?: string; recurringGroupId?: string; force?: boolean }
 ): Promise<{ request: EventRequest; event: InsertCalendarEvent & { id: string } }> {
   const existing = await dbStorage.getEventRequestById(id);
   if (!existing) {
@@ -82,12 +82,14 @@ export async function approveEventRequest(
     rruleOrSeries,
   });
 
-  const { hasConflict, conflicts } = await checkFieldConflicts(pitch, startAt, endAt);
-  if (hasConflict) {
-    const error: any = new Error("Konflikt mit bestehenden Terminen");
-    error.code = "CONFLICT";
-    error.conflicts = conflicts;
-    throw error;
+  if (!patch.force) {
+    const { hasConflict, conflicts } = await checkFieldConflicts(pitch, startAt, endAt);
+    if (hasConflict) {
+      const error: any = new Error("Konflikt mit bestehenden Terminen");
+      error.code = "CONFLICT";
+      error.conflicts = conflicts;
+      throw error;
+    }
   }
 
   const team = patch.team ?? existing.team ?? undefined;

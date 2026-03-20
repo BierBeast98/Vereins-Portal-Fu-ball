@@ -4,7 +4,7 @@ import type { EventRequest, Field, Team } from "@shared/schema";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -48,6 +48,10 @@ export default function RequestsPage() {
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected">("pending");
   const [selectedGroup, setSelectedGroup] = useState<RequestGroup | null>(null);
+  const [conflictInfo, setConflictInfo] = useState<{
+    pendingApprove: Parameters<typeof approveMutation.mutate>[0];
+    conflicts: { title: string; date: string; startTime: string; endTime: string }[];
+  } | null>(null);
 
   const { data: requests = [], isLoading } = useQuery<EventRequest[]>({
     queryKey: ["/api/admin/event-requests", statusFilter],
@@ -100,7 +104,7 @@ export default function RequestsPage() {
   const approveMutation = useMutation({
     mutationFn: async (input: {
       group: RequestGroup;
-      payload: { title: string; pitch: Field; start: string; end: string; team?: Team; adminNote?: string };
+      payload: { title: string; pitch: Field; start: string; end: string; team?: Team; adminNote?: string; force?: boolean };
     }) => {
       const { group, payload } = input;
       if (!group) throw new Error("No selection");
@@ -132,6 +136,7 @@ export default function RequestsPage() {
         };
         if (payload.team !== undefined) body.team = payload.team;
         if (payload.adminNote) body.adminNote = payload.adminNote;
+        if (payload.force) body.force = true;
 
         const res = await fetch(`/api/admin/event-requests/${req.id}/approve`, {
           method: "POST",
@@ -141,7 +146,14 @@ export default function RequestsPage() {
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          throw new Error(data?.error || "Freigabe fehlgeschlagen");
+          if (res.status === 409 && data.code === "CONFLICT") {
+            const err: any = new Error("CONFLICT");
+            err.isConflict = true;
+            err.conflicts = data.conflicts ?? [];
+            err.originalInput = input;
+            throw err;
+          }
+          throw new Error(data?.message || data?.error || "Freigabe fehlgeschlagen");
         }
         await res.json();
       }
@@ -150,10 +162,15 @@ export default function RequestsPage() {
     onSuccess: () => {
       toast({ title: "Vorschlag freigegeben", description: "Das Training wurde in den Kalender übernommen." });
       setSelectedGroup(null);
+      setConflictInfo(null);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
     },
     onError: (err: any) => {
+      if (err.isConflict) {
+        setConflictInfo({ pendingApprove: err.originalInput, conflicts: err.conflicts });
+        return;
+      }
       toast({ title: "Fehler", description: err.message ?? "Freigabe fehlgeschlagen.", variant: "destructive" });
     },
   });
@@ -324,6 +341,47 @@ export default function RequestsPage() {
           onReject={(note) => rejectMutation.mutate({ group: selectedGroup, adminNote: note })}
           isSaving={saveMutation.isPending}
         />
+      )}
+
+      {conflictInfo && (
+        <Dialog open onOpenChange={(open) => { if (!open) setConflictInfo(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Terminkonflikt</DialogTitle>
+              <DialogDescription>
+                Der Termin überschneidet sich mit bestehenden Einträgen. Trotzdem eintragen?
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 text-sm">
+              {conflictInfo.conflicts.map((c, i) => (
+                <div key={i} className="border rounded px-3 py-2 bg-muted/40">
+                  <span className="font-medium">{c.title}</span>
+                  <span className="text-muted-foreground ml-2">
+                    {c.date} · {c.startTime}–{c.endTime}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setConflictInfo(null)}>
+                Abbrechen
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  const input = conflictInfo.pendingApprove;
+                  setConflictInfo(null);
+                  approveMutation.mutate({
+                    ...input,
+                    payload: { ...input.payload, force: true },
+                  });
+                }}
+              >
+                Trotzdem eintragen
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
