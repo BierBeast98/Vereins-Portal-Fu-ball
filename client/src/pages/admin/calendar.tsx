@@ -987,9 +987,49 @@ export default function CalendarPage() {
       );
     };
 
+    // Mobile: clickable month-card grid (all 12 months)
+    const renderMobileYearView = () => {
+      const allMonths = [0,1,2,3,4,5,6,7,8,9,10,11];
+      return (
+        <div className="grid grid-cols-3 gap-2">
+          {allMonths.map((month) => {
+            const days = getDaysInMonth(currentYear, month);
+            const monthEvents = days.flatMap((d) => eventsByDate.get(formatDate(d)) || []);
+            const hasConflict = days.some((d) => {
+              const ds = formatDate(d);
+              return conflicts.some((c) => c.event1.date === ds || c.event2.date === ds);
+            });
+            const hasToday = days.some((d) => formatDate(d) === today);
+            return (
+              <button
+                key={month}
+                className={[
+                  "flex flex-col items-start p-3 rounded-xl border bg-card text-left transition-colors active:bg-muted/60 hover:bg-muted/40",
+                  hasConflict ? "border-destructive" : "",
+                  hasToday ? "ring-2 ring-primary" : "",
+                ].filter(Boolean).join(" ")}
+                onClick={() => { setSelectedMonth(month); setViewMode("month"); }}
+                data-testid={`month-card-${month}`}
+              >
+                <span className="text-xs font-semibold text-muted-foreground">{MONTHS_DE[month]}</span>
+                <span className="text-xl font-bold mt-0.5">{monthEvents.length}</span>
+                <span className="text-[10px] text-muted-foreground">Termine</span>
+                {hasConflict && <AlertTriangle className="h-3 w-3 text-destructive mt-1" />}
+              </button>
+            );
+          })}
+        </div>
+      );
+    };
+
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {/* Mobile: Monatsraster */}
+        <div className="sm:hidden">
+          {renderMobileYearView()}
+        </div>
+        {/* Desktop: Monatsspalten */}
+        <div className="hidden sm:grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {monthsToShow.map(renderMonthColumn)}
         </div>
       </div>
@@ -1003,13 +1043,13 @@ export default function CalendarPage() {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Zurück zur Jahresübersicht
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back" className="shrink-0 px-2 sm:px-3">
+              <ArrowLeft className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Zurück zur Jahresübersicht</span>
             </Button>
-            <CardTitle>{MONTHS_DE[selectedMonth]} {currentYear}</CardTitle>
-            <div className="flex gap-1">
+            <CardTitle className="text-base sm:text-xl truncate">{MONTHS_DE[selectedMonth]} {currentYear}</CardTitle>
+            <div className="flex gap-1 shrink-0">
               <Button
                 variant="outline"
                 size="icon"
@@ -1077,16 +1117,18 @@ export default function CalendarPage() {
                   <span className={`w-8 font-bold ${isToday ? "text-primary" : ""}`}>
                     {date.getDate()}
                   </span>
-                  <div className="flex-1 flex flex-wrap gap-1">
+                  <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:flex-wrap gap-1">
                     {dayEvents.map((event) => (
                       <Badge
                         key={event.id}
-                        className={`${getEventColorClass(event)} cursor-pointer ${isAwayGame(event) ? "italic border border-current" : ""}`}
+                        className={`${getEventColorClass(event)} cursor-pointer max-w-full truncate block ${isAwayGame(event) ? "italic border border-current" : ""}`}
                         onClick={(e) => handleEventClick(event, e)}
                         data-testid={`event-badge-${event.id}`}
                       >
-                        {event.team && <span className="font-bold mr-1">[{getTeamShortLabel(event.team)}]{isAwayGame(event) ? "(A)" : ""}</span>}
-                        {event.startTime} {event.title}
+                        <span className="truncate">
+                          {event.team && <span className="font-bold mr-1">[{getTeamShortLabel(event.team)}]{isAwayGame(event) ? "(A)" : ""}</span>}
+                          {event.startTime} {event.title}
+                        </span>
                       </Badge>
                     ))}
                     {dayEvents.length === 0 && (
@@ -1094,7 +1136,7 @@ export default function CalendarPage() {
                     )}
                   </div>
                   {showWeekNum && (
-                    <span className="w-12 text-right text-muted-foreground">KW {weekNum}</span>
+                    <span className="w-10 sm:w-12 shrink-0 text-right text-muted-foreground text-xs sm:text-sm">KW {weekNum}</span>
                   )}
                 </div>
               );
@@ -1113,17 +1155,22 @@ export default function CalendarPage() {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back-day">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Zurück zum Monat
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back-day" className="shrink-0 px-2 sm:px-3">
+              <ArrowLeft className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Zurück zum Monat</span>
             </Button>
-            <CardTitle>
-              {date.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            <CardTitle className="text-sm sm:text-xl text-center truncate">
+              <span className="sm:hidden">
+                {date.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })}
+              </span>
+              <span className="hidden sm:inline">
+                {date.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </span>
             </CardTitle>
-            <Button onClick={() => openCreateDialog(selectedDate)} data-testid="button-add-event-day">
-              <Plus className="h-4 w-4 mr-2" />
-              Neuer Termin
+            <Button onClick={() => openCreateDialog(selectedDate)} data-testid="button-add-event-day" size="sm" className="shrink-0">
+              <Plus className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Neuer Termin</span>
             </Button>
           </div>
         </CardHeader>
@@ -1174,20 +1221,45 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {viewMode === "year" ? `Jahreskalender ${currentYear}` : 
-             viewMode === "month" ? `${MONTHS_DE[selectedMonth]} ${currentYear}` :
-             "Tagesansicht"}
-          </h1>
-          <p className="text-muted-foreground">
-            {events.length} Termine | {conflicts.length} Konflikte
-          </p>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">
+              {viewMode === "year" ? `Jahreskalender ${currentYear}` :
+               viewMode === "month" ? `${MONTHS_DE[selectedMonth]} ${currentYear}` :
+               "Tagesansicht"}
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              {events.length} Termine | {conflicts.length} Konflikte
+            </p>
+          </div>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => openCreateDialog()} data-testid="button-add-event">
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Neuer Termin</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[95vh] overflow-y-auto overflow-x-hidden pb-8">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingEvent ? "Termin bearbeiten" : "Neuer Termin"}
+                </DialogTitle>
+                <DialogDescription>
+                  {editingEvent ? "Bearbeiten Sie die Termindetails" : "Erstellen Sie einen neuen Termin im Kalender"}
+                </DialogDescription>
+              </DialogHeader>
+              <EventDialog
+                event={editingEvent}
+                onClose={() => setDialogOpen(false)}
+                selectedDate={selectedDate}
+              />
+            </DialogContent>
+          </Dialog>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filterTeam} onValueChange={setFilterTeam}>
-            <SelectTrigger className="w-40" data-testid="filter-team">
+            <SelectTrigger className="flex-1 min-w-[130px] sm:w-40" data-testid="filter-team">
               <SelectValue placeholder="Mannschaft" />
             </SelectTrigger>
             <SelectContent>
@@ -1201,7 +1273,7 @@ export default function CalendarPage() {
           </Select>
 
           <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="w-40" data-testid="filter-type">
+            <SelectTrigger className="flex-1 min-w-[120px] sm:w-40" data-testid="filter-type">
               <SelectValue placeholder="Terminart" />
             </SelectTrigger>
             <SelectContent>
@@ -1214,36 +1286,12 @@ export default function CalendarPage() {
             </SelectContent>
           </Select>
 
-          <Button variant="outline" onClick={handleExport} data-testid="button-export">
-            <Download className="h-4 w-4 mr-2" />
-            CSV Export
+          <Button variant="outline" onClick={handleExport} data-testid="button-export" size="sm">
+            <Download className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">CSV Export</span>
           </Button>
 
           <BfvImportButton />
-
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => openCreateDialog()} data-testid="button-add-event">
-                <Plus className="h-4 w-4 mr-2" />
-                Neuer Termin
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[95vh] overflow-y-auto overflow-x-hidden pb-8">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingEvent ? "Termin bearbeiten" : "Neuer Termin"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingEvent ? "Bearbeiten Sie die Termindetails" : "Erstellen Sie einen neuen Termin im Kalender"}
-                </DialogDescription>
-              </DialogHeader>
-              <EventDialog 
-                event={editingEvent} 
-                onClose={() => setDialogOpen(false)}
-                selectedDate={selectedDate}
-              />
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
@@ -1267,7 +1315,7 @@ export default function CalendarPage() {
             <ChevronRight className="h-4 w-4" />
           </Button>
           <span className="w-px h-8 bg-border hidden sm:block" aria-hidden />
-          <div className="flex rounded-md border border-input overflow-hidden" role="group" aria-label="Jahreshälfte">
+          <div className="hidden sm:flex rounded-md border border-input overflow-hidden" role="group" aria-label="Jahreshälfte">
             <Button
               variant={yearHalf === 1 ? "default" : "ghost"}
               size="sm"
