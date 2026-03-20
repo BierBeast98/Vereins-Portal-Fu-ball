@@ -82,6 +82,30 @@ export async function approveEventRequest(
     rruleOrSeries,
   });
 
+  // Handle delete_request: remove the target event and mark as approved
+  if (existing.type === "delete_request" && existing.targetEventId) {
+    await dbStorage.deleteCalendarEvent(existing.targetEventId);
+    const updatedRequest = await dbStorage.updateEventRequest(id, {
+      status: "approved",
+      adminNote: patch.adminNote,
+    });
+    if (!updatedRequest) {
+      throw new Error("Failed to update request after approval");
+    }
+    // Return a dummy event shape so callers don't break
+    const dummyEvent: InsertCalendarEvent & { id: string } = {
+      title: existing.title,
+      type: "training",
+      field: existing.pitch,
+      date,
+      startTime,
+      endTime,
+      bfvImported: false,
+      id: existing.targetEventId,
+    };
+    return { request: updatedRequest, event: dummyEvent };
+  }
+
   if (!patch.force) {
     const { hasConflict, conflicts } = await checkFieldConflicts(pitch, startAt, endAt);
     if (hasConflict) {
@@ -106,9 +130,20 @@ export async function approveEventRequest(
     recurringGroupId: patch.recurringGroupId,
   };
 
-  // Update existing calendar event instead of creating duplicate (e.g. re-approval)
+  // For change_request: always update the target event instead of creating a new one
   let created: InsertCalendarEvent & { id: string };
-  if (existing.approvedEventId) {
+  if (existing.type === "change_request" && existing.targetEventId) {
+    const updated = await dbStorage.updateCalendarEvent(existing.targetEventId, insertEvent);
+    if (!updated) {
+      const newEvent = await dbStorage.createCalendarEvent(insertEvent);
+      created = { ...insertEvent, id: newEvent.id };
+      console.debug("[Kalender-Sync] change_request: re-created event (previous was missing)", { eventId: created.id });
+    } else {
+      created = { ...insertEvent, id: updated.id };
+      console.debug("[Kalender-Sync] change_request: updated target event", { eventId: created.id });
+    }
+  } else if (existing.approvedEventId) {
+    // Update existing calendar event instead of creating duplicate (e.g. re-approval)
     const updated = await dbStorage.updateCalendarEvent(existing.approvedEventId, insertEvent);
     if (!updated) {
       const newEvent = await dbStorage.createCalendarEvent(insertEvent);

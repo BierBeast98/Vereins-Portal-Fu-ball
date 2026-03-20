@@ -4,8 +4,9 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { de } from "date-fns/locale";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EventActionDialog } from "@/components/event-action-dialog";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
@@ -39,6 +40,7 @@ export function MobileFieldCalendar({
 
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [actionEvent, setActionEvent] = useState<{ event: CalendarEvent; mode: "delete" | "change" } | null>(null);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -278,6 +280,26 @@ export function MobileFieldCalendar({
                       {event.team && <> · {TEAM_LABELS[event.team as Team] ?? event.team}</>}
                     </p>
                   </div>
+                  {!event.isPending && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        title="Änderung vorschlagen"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        onClick={() => setActionEvent({ event, mode: "change" })}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Löschen vorschlagen"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        onClick={() => setActionEvent({ event, mode: "delete" })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -288,6 +310,14 @@ export function MobileFieldCalendar({
           Training vorschlagen
         </Button>
       </div>
+
+      {actionEvent && (
+        <EventActionDialog
+          event={actionEvent.event}
+          mode={actionEvent.mode}
+          onClose={() => setActionEvent(null)}
+        />
+      )}
     </div>
   );
 }

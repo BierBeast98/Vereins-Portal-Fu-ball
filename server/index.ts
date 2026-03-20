@@ -9,6 +9,8 @@ import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -143,6 +145,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // DB migration: add target_event_id column if not present
+  try {
+    await db.execute(sql`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS target_event_id VARCHAR(36)`);
+    log("DB migration: target_event_id column ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to add target_event_id column:", err);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

@@ -160,7 +160,20 @@ export default function RequestsPage() {
       return true;
     },
     onSuccess: () => {
-      toast({ title: "Vorschlag freigegeben", description: "Das Training wurde in den Kalender übernommen." });
+      const type = selectedGroup?.head?.type;
+      const title =
+        type === "delete_request"
+          ? "Termin gelöscht"
+          : type === "change_request"
+          ? "Termin geändert"
+          : "Vorschlag freigegeben";
+      const description =
+        type === "delete_request"
+          ? "Der Termin wurde aus dem Kalender entfernt."
+          : type === "change_request"
+          ? "Der Termin wurde im Kalender aktualisiert."
+          : "Das Training wurde in den Kalender übernommen.";
+      toast({ title, description });
       setSelectedGroup(null);
       setConflictInfo(null);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
@@ -294,11 +307,21 @@ export default function RequestsPage() {
               onClick={() => setSelectedGroup(group)}
             >
               <div>
-                <div className="font-medium">
+                <div className="font-medium flex items-center gap-2 flex-wrap">
                   {head.title}{" "}
                   <span className="text-xs text-muted-foreground">
                     ({FIELD_LABELS[head.pitch]})
                   </span>
+                  {head.type === "delete_request" && (
+                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                      Löschen
+                    </Badge>
+                  )}
+                  {head.type === "change_request" && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                      Änderung
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {formatDateTime(head.startAt)} – {formatDateTime(head.endAt)}{" "}
@@ -440,6 +463,16 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
               Angelegt von {head.createdBy || "unbekannt"} am{" "}
               {formatDateTime(head.createdAt)}
             </div>
+            {head.type === "delete_request" && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/30 text-destructive px-3 py-2 text-sm font-medium">
+                Löschvorschlag – dieser Termin wird nach Bestätigung dauerhaft aus dem Kalender entfernt.
+              </div>
+            )}
+            {head.type === "change_request" && (
+              <div className="rounded-md bg-secondary/50 border px-3 py-2 text-sm text-muted-foreground">
+                Änderungsvorschlag – der bestehende Termin wird mit den unten angegebenen Daten aktualisiert.
+              </div>
+            )}
             {count > 1 && (
               <div>
                 Serie mit {count} Terminen ·{" "}
@@ -528,8 +561,14 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
           <Button variant="destructive" onClick={handleReject} disabled={isSaving}>
             Ablehnen{count > 1 ? " (Serie)" : ""}
           </Button>
-          <Button onClick={handleApprove} disabled={isSaving}>
-            Freigeben &amp; eintragen{count > 1 ? " (Serie)" : ""}
+          <Button
+            onClick={handleApprove}
+            disabled={isSaving}
+            variant={head.type === "delete_request" ? "destructive" : "default"}
+          >
+            {head.type === "delete_request"
+              ? "Löschen bestätigen"
+              : `Freigeben & eintragen${count > 1 ? " (Serie)" : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>

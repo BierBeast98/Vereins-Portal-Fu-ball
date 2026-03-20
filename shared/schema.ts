@@ -99,6 +99,7 @@ export const eventRequestsTable = pgTable("event_requests", {
   status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, approved, rejected
   adminNote: text("admin_note"),
   approvedEventId: varchar("approved_event_id", { length: 36 }),
+  targetEventId: varchar("target_event_id", { length: 36 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
@@ -513,7 +514,7 @@ export const TEAM_BORDER_COLORS: Record<Team, string> = {
 export const EVENT_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
 export type EventRequestStatus = typeof EVENT_REQUEST_STATUSES[number];
 
-export const EVENT_REQUEST_TYPES = ["training"] as const;
+export const EVENT_REQUEST_TYPES = ["training", "delete_request", "change_request"] as const;
 export type EventRequestType = typeof EVENT_REQUEST_TYPES[number];
 
 export interface EventRequest {
@@ -529,6 +530,7 @@ export interface EventRequest {
   status: EventRequestStatus;
   adminNote?: string;
   approvedEventId?: string;
+  targetEventId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -542,6 +544,7 @@ export const insertEventRequestSchema = z.object({
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   note: z.string().optional(),
+  targetEventId: z.string().optional(),
 });
 
 export type InsertEventRequest = z.infer<typeof insertEventRequestSchema>;

@@ -147,6 +147,7 @@ function dbEventRequestToEventRequest(dbReq: EventRequestDb): EventRequest {
     status: dbReq.status as EventRequestStatus,
     adminNote: dbReq.adminNote ?? undefined,
     approvedEventId: dbReq.approvedEventId ?? undefined,
+    targetEventId: (dbReq as any).targetEventId ?? undefined,
     createdAt: dbReq.createdAt.toISOString(),
     updatedAt: dbReq.updatedAt.toISOString(),
   };
@@ -570,6 +571,7 @@ export class DbStorage implements IDbStorage {
         status: "pending",
         adminNote: null,
         approvedEventId: null,
+        targetEventId: (data as any).targetEventId ?? null,
         createdAt: now,
         updatedAt: now,
       })
@@ -623,6 +625,7 @@ export class DbStorage implements IDbStorage {
     if (patch.status !== undefined) updateData.status = patch.status;
     if (patch.adminNote !== undefined) updateData.adminNote = patch.adminNote ?? null;
     if (patch.approvedEventId !== undefined) updateData.approvedEventId = patch.approvedEventId ?? null;
+    if ((patch as any).targetEventId !== undefined) (updateData as any).targetEventId = (patch as any).targetEventId ?? null;
 
     const [row] = await db
       .update(eventRequestsTable)
