@@ -430,7 +430,7 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Vorschlag prüfen</DialogTitle>
         </DialogHeader>
