@@ -84,9 +84,19 @@ export async function approveEventRequest(
     rruleOrSeries,
   });
 
+  // Debug: log type and targetEventId for delete/change requests
+  console.log("[approveEventRequest]", {
+    id,
+    type: existing.type,
+    targetEventId: existing.targetEventId,
+    status: existing.status,
+  });
+
   // Handle delete_request: remove the target event and mark as approved
   if (existing.type === "delete_request" && existing.targetEventId) {
-    await dbStorage.deleteCalendarEvent(existing.targetEventId);
+    console.log("[approveEventRequest] deleting target event:", existing.targetEventId);
+    const deleted = await dbStorage.deleteCalendarEvent(existing.targetEventId);
+    console.log("[approveEventRequest] delete result:", deleted);
     const updatedRequest = await dbStorage.updateEventRequest(id, {
       status: "approved",
       adminNote: patch.adminNote,

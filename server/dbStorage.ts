@@ -571,11 +571,12 @@ export class DbStorage implements IDbStorage {
         status: "pending",
         adminNote: null,
         approvedEventId: null,
-        targetEventId: (data as any).targetEventId ?? null,
+        targetEventId: data.targetEventId ?? null,
         createdAt: now,
         updatedAt: now,
       })
       .returning();
+    console.log("[createEventRequest] stored:", { id, type: row.type, targetEventId: row.targetEventId });
     return dbEventRequestToEventRequest(row);
   }
 
