@@ -5,8 +5,6 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
-echo '{"async": true, "asyncTimeout": 300000}'
-
 cd "${CLAUDE_PROJECT_DIR:-$(dirname "$(dirname "$(realpath "$0")")")}"
 
 # Install dependencies
@@ -32,5 +30,15 @@ echo "export DATABASE_URL=\"${DATABASE_URL}\"" >> "${CLAUDE_ENV_FILE:-/dev/null}
 # Push DB schema
 DATABASE_URL="${DATABASE_URL}" npm run db:push
 
-# Start dev server in background
+# Start dev server in background and wait until it's ready
 DATABASE_URL="${DATABASE_URL}" npm run dev &
+DEV_PID=$!
+
+# Wait until server responds on port 5000 (max 30s)
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:5000 > /dev/null 2>&1; then
+    echo "Dev server ready on port 5000"
+    break
+  fi
+  sleep 1
+done
