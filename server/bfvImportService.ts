@@ -253,6 +253,16 @@ function inferTeamFromMatch(
   const isGreding = lower.includes("greding");
 
   if (isGreding) {
+    if (sectionHeaderFromPdf) {
+      const h = sectionHeaderFromPdf.toLowerCase();
+      if (/\b(a|a-)\s*jugend\b|\b(a|a-)\s*junioren\b/.test(h)) return "a-jugend";
+      if (/\b(b|b-)\s*jugend\b|\b(b|b-)\s*junioren\b/.test(h)) return "b-jugend";
+      if (/\b(c|c-)\s*jugend\b|\b(c|c-)\s*junioren\b/.test(h)) return "c-jugend";
+      if (/\b(d|d-)\s*jugend\b|\b(d|d-)\s*junioren\b/.test(h)) return "d-jugend";
+      if (/\b(e|e-)\s*jugend\b|\b(e|e-)\s*junioren\b/.test(h)) return "e-jugend";
+      if (/\b(f|f-)\s*jugend\b|\b(f|f-)\s*junioren\b/.test(h)) return "f-jugend";
+      if (/\b(g|g-)\s*jugend\b|\b(g|g-)\s*junioren\b/.test(h)) return "g-jugend";
+    }
     if (/\bII\b| 2\b|\(2\)/.test(ourName)) return "herren2";
     return "herren";
   }

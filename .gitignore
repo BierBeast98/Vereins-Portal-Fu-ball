@@ -32,3 +32,7 @@ tmp/
 
 # TypeScript-Cache
 *.tsbuildinfo
+
+# Claude session checkpoints
+.claude-checkpoint.md
+.claude-checkpoints/
