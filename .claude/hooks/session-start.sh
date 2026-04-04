@@ -11,4 +11,8 @@ cd "${CLAUDE_PROJECT_DIR:-$(dirname "$(dirname "$(realpath "$0")")")}"
 
 npm install
 
-npm run dev &
+if [ -n "${DATABASE_URL:-}" ]; then
+  npm run dev &
+else
+  serve -l tcp://0.0.0.0:5000 dist/public &
+fi
