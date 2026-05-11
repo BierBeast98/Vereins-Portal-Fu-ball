@@ -95,6 +95,7 @@ export interface IDbStorage {
   getOrdersByCampaign(campaignId: string): Promise<Order[]>;
   getOrder(id: string): Promise<Order | undefined>;
   createOrder(order: InsertOrder): Promise<Order>;
+  deleteOrder(id: string): Promise<boolean>;
 }
 
 function dbEventToCalendarEvent(dbEvent: CalendarEventDb): CalendarEvent {
@@ -776,6 +777,11 @@ export class DbStorage implements IDbStorage {
       totalAmount,
     }).returning();
     return dbOrderToOrder(row);
+  }
+
+  async deleteOrder(id: string): Promise<boolean> {
+    const result = await db.delete(ordersTable).where(eq(ordersTable.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 }
 

@@ -26,8 +26,18 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Download, ClipboardList, Mail, User, Calendar, Euro, Loader2 } from "lucide-react";
+import { Download, ClipboardList, Mail, User, Calendar, Euro, Loader2, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { useState } from "react";
@@ -35,6 +45,7 @@ import { useState } from "react";
 export default function OrdersPage() {
   const { toast } = useToast();
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
+  const [deleteOrder, setDeleteOrder] = useState<Order | null>(null);
 
   const { data: orders, isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders"],
@@ -42,6 +53,27 @@ export default function OrdersPage() {
 
   const { data: campaigns } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/orders/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      setDeleteOrder(null);
+      toast({
+        title: "Bestellung gelöscht",
+        description: "Die Bestellung wurde entfernt.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Fehler",
+        description: "Die Bestellung konnte nicht gelöscht werden.",
+        variant: "destructive",
+      });
+    },
   });
 
   const exportMutation = useMutation({
@@ -254,13 +286,24 @@ export default function OrdersPage() {
                           ))}
                         </TableBody>
                       </Table>
-                      <div className="flex justify-between items-center mt-4 pt-4 border-t">
+                      <div className="flex justify-between items-center mt-4 pt-4 border-t gap-4">
                         <span className="text-sm text-muted-foreground">
                           Kampagne: {getCampaignName(order.campaignId)}
                         </span>
-                        <span className="font-semibold">
-                          Gesamt: {order.totalAmount.toFixed(2)} €
-                        </span>
+                        <div className="flex items-center gap-4">
+                          <span className="font-semibold">
+                            Gesamt: {order.totalAmount.toFixed(2)} €
+                          </span>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setDeleteOrder(order)}
+                            data-testid={`button-delete-order-${order.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Löschen
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </AccordionContent>
@@ -282,6 +325,38 @@ export default function OrdersPage() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={deleteOrder !== null} onOpenChange={(open) => !open && setDeleteOrder(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bestellung wirklich löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteOrder && (
+                <>
+                  Die Bestellung von <strong>{deleteOrder.firstName} {deleteOrder.lastName}</strong>{" "}
+                  ({deleteOrder.email}) über <strong>{deleteOrder.totalAmount.toFixed(2)} €</strong>{" "}
+                  wird unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteOrder && deleteMutation.mutate(deleteOrder.id)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-order"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

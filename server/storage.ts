@@ -45,6 +45,7 @@ export interface IStorage {
   getOrdersByCampaign(campaignId: string): Promise<Order[]>;
   getOrder(id: string): Promise<Order | undefined>;
   createOrder(order: InsertOrder): Promise<Order>;
+  deleteOrder(id: string): Promise<boolean>;
 
   // Calendar Events
   getAllCalendarEvents(): Promise<CalendarEvent[]>;
@@ -358,6 +359,10 @@ export class MemStorage implements IStorage {
 
     this.orders.set(id, order);
     return order;
+  }
+
+  async deleteOrder(id: string): Promise<boolean> {
+    return this.orders.delete(id);
   }
 
   // Calendar Events

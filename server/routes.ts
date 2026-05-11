@@ -370,6 +370,19 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/orders/:id", requireAdmin, async (req, res) => {
+    try {
+      const deleted = await dbStorage.deleteOrder(req.params.id as string);
+      if (!deleted) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("[DELETE /api/orders/:id] failed:", error);
+      res.status(500).json({ error: "Failed to delete order" });
+    }
+  });
+
   // Excel Export (admin only)
   app.get("/api/orders/export/:campaignId", requireAdmin, async (req, res) => {
     try {

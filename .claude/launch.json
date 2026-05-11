@@ -4,7 +4,7 @@
     {
       "name": "dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["tsx", "--env-file=.env", "server/index.ts"],
+      "runtimeArgs": ["tsx", "server/dev-entry.ts"],
       "env": {
         "NODE_ENV": "development"
       },
