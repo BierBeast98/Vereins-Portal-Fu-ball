@@ -153,6 +153,24 @@ app.use((req, res, next) => {
     console.error("[migration] Failed to add target_event_id column:", err);
   }
 
+  // DB migration: create product_images table for in-database image storage
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS product_images (
+        id VARCHAR(36) NOT NULL,
+        variant VARCHAR(20) NOT NULL,
+        content_type VARCHAR(100) NOT NULL,
+        data BYTEA NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        CONSTRAINT unique_product_image_variant UNIQUE (id, variant)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_product_image_id ON product_images (id)`);
+    log("DB migration: product_images table ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to ensure product_images table:", err);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

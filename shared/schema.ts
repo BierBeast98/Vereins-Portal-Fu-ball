@@ -1,7 +1,13 @@
 import { z } from "zod";
-import { pgTable, varchar, text, integer, boolean, timestamp, jsonb, unique, index, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, boolean, timestamp, jsonb, unique, index, doublePrecision, customType } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
+
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 // ============================================
 // DATABASE TABLES (Drizzle ORM)
@@ -132,6 +138,18 @@ export const productsTable = pgTable("products", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Product images table - binary image data stored directly in database
+export const productImagesTable = pgTable("product_images", {
+  id: varchar("id", { length: 36 }).notNull(),
+  variant: varchar("variant", { length: 20 }).notNull(), // "thumb" | "medium" | "original"
+  contentType: varchar("content_type", { length: 100 }).notNull(),
+  data: bytea("data").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("unique_product_image_variant").on(table.id, table.variant),
+  index("idx_product_image_id").on(table.id),
+]);
 
 // Campaigns table - persistent storage for order campaigns
 export const campaignsTable = pgTable("campaigns", {

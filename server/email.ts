@@ -95,7 +95,7 @@ export async function sendOrderConfirmation(order: Order): Promise<boolean> {
 
   try {
     const result = await resend.emails.send({
-      from: "Vereinsportal TSV Greding <bestellung@resend.dev>",
+      from: "Vereinsportal TSV Greding <bestellung@vereinsportal-tsv-greding.de>",
       to: order.email,
       subject: `Bestellbestätigung - ${order.campaignName}`,
       html: emailHtml,
@@ -226,7 +226,7 @@ export async function sendEventRequestNotification(request: EventRequest): Promi
 
   try {
     const result = await resend.emails.send({
-      from: "Vereinsportal TSV Greding <bestellung@resend.dev>",
+      from: "Vereinsportal TSV Greding <bestellung@vereinsportal-tsv-greding.de>",
       to: adminEmail,
       subject: `⚽ Neuer Platzvorschlag: ${request.title} – ${new Date(request.startAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Berlin" })}`,
       html: emailHtml,

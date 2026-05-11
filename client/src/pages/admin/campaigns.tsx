@@ -77,6 +77,7 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns/active"] });
       setIsDialogOpen(false);
       form.reset();
       toast({
@@ -99,6 +100,7 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns/active"] });
       setIsDialogOpen(false);
       setEditingCampaign(null);
       form.reset();
@@ -122,6 +124,7 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns/active"] });
       setDeleteCampaign(null);
       toast({
         title: "Kampagne gelöscht",
@@ -143,6 +146,7 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns/active"] });
     },
   });
 

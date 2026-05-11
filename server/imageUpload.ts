@@ -1,20 +1,9 @@
 import sharp from "sharp";
 import { randomUUID } from "crypto";
-import { objectStorageClient } from "./replit_integrations/object_storage/objectStorage";
-
-function parseObjectPath(path: string): { bucketName: string; objectName: string } {
-  if (!path.startsWith("/")) {
-    path = `/${path}`;
-  }
-  const pathParts = path.split("/");
-  if (pathParts.length < 3) {
-    throw new Error("Invalid path: must contain at least a bucket name");
-  }
-  return {
-    bucketName: pathParts[1],
-    objectName: pathParts.slice(2).join("/"),
-  };
-}
+import { and, eq } from "drizzle-orm";
+import type { Response } from "express";
+import { db } from "./db";
+import { productImagesTable } from "@shared/schema";
 
 interface ProcessedImage {
   thumbnail: string;
@@ -22,69 +11,40 @@ interface ProcessedImage {
   original: string;
 }
 
-async function uploadBuffer(
-  buffer: Buffer,
-  objectPath: string,
-  contentType: string
-): Promise<void> {
-  const { bucketName, objectName } = parseObjectPath(objectPath);
-  const bucket = objectStorageClient.bucket(bucketName);
-  const file = bucket.file(objectName);
-  await file.save(buffer, {
-    contentType,
-    metadata: {
-      metadata: {
-        "custom:aclPolicy": JSON.stringify({
-          owner: "admin",
-          visibility: "public",
-        }),
-      },
-    },
-  });
+type Variant = "thumb" | "medium" | "original";
+
+const CONTENT_TYPE = "image/webp";
+
+function parseFilename(filename: string): { id: string; variant: Variant } | null {
+  const match = filename.match(/^([0-9a-f-]{36})-(thumb|medium|original)\.webp$/i);
+  if (!match) return null;
+  return { id: match[1], variant: match[2] as Variant };
 }
 
 export async function processAndUploadImage(
   fileBuffer: Buffer,
-  originalName: string
+  _originalName: string,
 ): Promise<ProcessedImage> {
   const id = randomUUID();
-  const publicDir = (process.env.PUBLIC_OBJECT_SEARCH_PATHS || "").split(",")[0]?.trim();
-  if (!publicDir) {
-    throw new Error("PUBLIC_OBJECT_SEARCH_PATHS not configured");
-  }
-
-  const basePath = `${publicDir}/images/${id}`;
 
   let sharpInstance;
   try {
     sharpInstance = sharp(fileBuffer).rotate();
     await sharpInstance.metadata();
-  } catch (err) {
+  } catch {
     throw new Error("Ungültige Bilddatei. Die Datei konnte nicht verarbeitet werden.");
   }
 
-  const thumbnail = await sharpInstance
-    .clone()
-    .resize(200, 200, { fit: "cover" })
-    .webp({ quality: 80 })
-    .toBuffer();
+  const [thumbBuf, mediumBuf, originalBuf] = await Promise.all([
+    sharpInstance.clone().resize(200, 200, { fit: "cover" }).webp({ quality: 80 }).toBuffer(),
+    sharpInstance.clone().resize(600, 600, { fit: "inside", withoutEnlargement: true }).webp({ quality: 85 }).toBuffer(),
+    sharpInstance.clone().resize(1200, 1200, { fit: "inside", withoutEnlargement: true }).webp({ quality: 90 }).toBuffer(),
+  ]);
 
-  const medium = await sharpInstance
-    .clone()
-    .resize(600, 600, { fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 85 })
-    .toBuffer();
-
-  const original = await sharpInstance
-    .clone()
-    .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 90 })
-    .toBuffer();
-
-  await Promise.all([
-    uploadBuffer(thumbnail, `${basePath}-thumb.webp`, "image/webp"),
-    uploadBuffer(medium, `${basePath}-medium.webp`, "image/webp"),
-    uploadBuffer(original, `${basePath}-original.webp`, "image/webp"),
+  await db.insert(productImagesTable).values([
+    { id, variant: "thumb", contentType: CONTENT_TYPE, data: thumbBuf },
+    { id, variant: "medium", contentType: CONTENT_TYPE, data: mediumBuf },
+    { id, variant: "original", contentType: CONTENT_TYPE, data: originalBuf },
   ]);
 
   return {
@@ -96,30 +56,30 @@ export async function processAndUploadImage(
 
 export async function serveImage(
   imagePath: string,
-  res: import("express").Response
+  res: Response,
 ): Promise<void> {
-  const publicPaths = (process.env.PUBLIC_OBJECT_SEARCH_PATHS || "")
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  for (const searchPath of publicPaths) {
-    const fullPath = `${searchPath}/images/${imagePath}`;
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-    const [exists] = await file.exists();
-
-    if (exists) {
-      const [metadata] = await file.getMetadata();
-      res.set({
-        "Content-Type": metadata.contentType || "image/webp",
-        "Cache-Control": "public, max-age=31536000, immutable",
-      });
-      file.createReadStream().pipe(res);
-      return;
-    }
+  const parsed = parseFilename(imagePath);
+  if (!parsed) {
+    res.status(404).json({ error: "Image not found" });
+    return;
   }
 
-  res.status(404).json({ error: "Image not found" });
+  const rows = await db
+    .select()
+    .from(productImagesTable)
+    .where(and(eq(productImagesTable.id, parsed.id), eq(productImagesTable.variant, parsed.variant)))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) {
+    res.status(404).json({ error: "Image not found" });
+    return;
+  }
+
+  res.set({
+    "Content-Type": row.contentType,
+    "Content-Length": String(row.data.length),
+    "Cache-Control": "public, max-age=31536000, immutable",
+  });
+  res.send(row.data);
 }
