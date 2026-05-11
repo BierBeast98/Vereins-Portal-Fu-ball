@@ -171,6 +171,111 @@ app.use((req, res, next) => {
     console.error("[migration] Failed to ensure product_images table:", err);
   }
 
+  // DB migration: create products table for shop
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS products (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(500) NOT NULL,
+        category VARCHAR(255) NOT NULL,
+        base_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+        image_url TEXT NOT NULL DEFAULT '',
+        additional_images JSONB NOT NULL DEFAULT '[]'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT true,
+        short_description TEXT,
+        long_description TEXT,
+        brand VARCHAR(255),
+        season VARCHAR(100),
+        available_sizes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        initials_enabled BOOLEAN NOT NULL DEFAULT false,
+        initials_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+        initials_label VARCHAR(255) NOT NULL DEFAULT 'Initialien',
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    log("DB migration: products table ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to ensure products table:", err);
+  }
+
+  // DB migration: create campaigns table for collective orders
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(500) NOT NULL,
+        description TEXT NOT NULL,
+        start_date VARCHAR(10) NOT NULL,
+        end_date VARCHAR(10) NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT true,
+        product_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    log("DB migration: campaigns table ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to ensure campaigns table:", err);
+  }
+
+  // DB migration: create orders table for placed orders
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS orders (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        campaign_id VARCHAR(36) NOT NULL,
+        campaign_name VARCHAR(500) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        first_name VARCHAR(255) NOT NULL,
+        last_name VARCHAR(255) NOT NULL,
+        items JSONB NOT NULL DEFAULT '[]'::jsonb,
+        total_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    log("DB migration: orders table ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to ensure orders table:", err);
+  }
+
+  // DB migration: create import_runs table for BFV import history
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS import_runs (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        started_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        finished_at TIMESTAMP,
+        source VARCHAR(20) NOT NULL DEFAULT 'bfv',
+        created_count INTEGER NOT NULL DEFAULT 0,
+        updated_count INTEGER NOT NULL DEFAULT 0,
+        archived_count INTEGER NOT NULL DEFAULT 0,
+        errors JSONB,
+        warnings JSONB
+      )
+    `);
+    log("DB migration: import_runs table ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to ensure import_runs table:", err);
+  }
+
+  // DB migration: create import_warnings table for BFV import notifications
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS import_warnings (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        import_run_id VARCHAR(36) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        message TEXT NOT NULL,
+        event_refs JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    log("DB migration: import_warnings table ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to ensure import_warnings table:", err);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
