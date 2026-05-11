@@ -103,7 +103,12 @@ export default function HomePage() {
                       <CardHeader>
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <CardTitle>{campaign.name}</CardTitle>
+                            <CardTitle className="flex items-center gap-2">
+                              {campaign.name}
+                              {campaign.hasPassword && (
+                                <Lock className="h-4 w-4 text-muted-foreground" aria-label="Passwortgeschützt" />
+                              )}
+                            </CardTitle>
                             <CardDescription className="mt-1 flex items-center gap-2">
                               <Calendar className="h-4 w-4" />
                               bis {format(parseISO(campaign.endDate), "dd. MMMM yyyy", { locale: de })}

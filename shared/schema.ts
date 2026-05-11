@@ -160,6 +160,7 @@ export const campaignsTable = pgTable("campaigns", {
   endDate: varchar("end_date", { length: 10 }).notNull(),
   active: boolean("active").notNull().default(true),
   productIds: jsonb("product_ids").notNull().default([]),
+  password: varchar("password", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -248,6 +249,7 @@ export interface Campaign {
   endDate: string;
   active: boolean;
   productIds: string[];
+  hasPassword: boolean;
 }
 
 export const insertCampaignSchema = z.object({
@@ -257,6 +259,7 @@ export const insertCampaignSchema = z.object({
   endDate: z.string().min(1, "Enddatum ist erforderlich"),
   active: z.boolean().default(true),
   productIds: z.array(z.string()).default([]),
+  password: z.string().nullable().optional(),
 });
 
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
@@ -307,6 +310,7 @@ export const insertOrderSchema = z.object({
   firstName: z.string().min(1, "Vorname ist erforderlich"),
   lastName: z.string().min(1, "Nachname ist erforderlich"),
   items: z.array(orderItemSchema).min(1, "Mindestens ein Artikel erforderlich"),
+  campaignPassword: z.string().optional(),
 });
 
 export type InsertOrder = z.infer<typeof insertOrderSchema>;

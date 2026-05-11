@@ -40,7 +40,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Calendar, Copy, Loader2, Package } from "lucide-react";
+import { Plus, Pencil, Trash2, Calendar, Copy, Loader2, Package, Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, isWithinInterval, parseISO, isPast } from "date-fns";
 import { de } from "date-fns/locale";
@@ -68,6 +68,7 @@ export default function CampaignsPage() {
       endDate: "",
       active: true,
       productIds: [],
+      password: "",
     },
   });
 
@@ -159,6 +160,7 @@ export default function CampaignsPage() {
       endDate: campaign.endDate,
       active: campaign.active,
       productIds: campaign.productIds,
+      password: "",
     });
     setIsDialogOpen(true);
   };
@@ -172,6 +174,7 @@ export default function CampaignsPage() {
       endDate: "",
       active: true,
       productIds: [],
+      password: "",
     });
     setIsDialogOpen(true);
   };
@@ -187,11 +190,43 @@ export default function CampaignsPage() {
 
   const onSubmit = (data: InsertCampaign) => {
     if (editingCampaign) {
-      updateMutation.mutate({ id: editingCampaign.id, data });
+      // Beim Bearbeiten: Leer lassen = Passwort unverändert. Nur senden, wenn etwas eingetippt wurde.
+      const { password, ...rest } = data;
+      const payload: Partial<InsertCampaign> = rest;
+      if (password && password.length > 0) {
+        payload.password = password;
+      }
+      updateMutation.mutate({ id: editingCampaign.id, data: payload as InsertCampaign });
     } else {
-      createMutation.mutate(data);
+      // Beim Anlegen: Leeres Passwort = kein Schutz
+      const payload: InsertCampaign = { ...data };
+      if (!payload.password || payload.password.length === 0) {
+        payload.password = null;
+      }
+      createMutation.mutate(payload);
     }
   };
+
+  const removePasswordMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("PATCH", `/api/campaigns/${id}`, { password: null });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns/active"] });
+      toast({
+        title: "Passwortschutz entfernt",
+        description: "Die Kampagne ist jetzt offen für alle.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Fehler",
+        description: "Der Passwortschutz konnte nicht entfernt werden.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const getCampaignStatus = (campaign: Campaign) => {
     const now = new Date();
@@ -394,6 +429,49 @@ export default function CampaignsPage() {
                   )}
                 />
 
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem className="rounded-md border p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <FormLabel>Bestellungs-Passwort (optional)</FormLabel>
+                          <FormDescription>
+                            {editingCampaign?.hasPassword ? (
+                              <span className="text-amber-600 font-medium">🔒 Schutz aktiv — leer lassen lässt das Passwort unverändert</span>
+                            ) : (
+                              "Wenn gesetzt, müssen Besteller das Passwort eingeben"
+                            )}
+                          </FormDescription>
+                        </div>
+                        {editingCampaign?.hasPassword && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removePasswordMutation.mutate(editingCampaign.id)}
+                            disabled={removePasswordMutation.isPending}
+                            data-testid="button-remove-password"
+                          >
+                            Schutz entfernen
+                          </Button>
+                        )}
+                      </div>
+                      <FormControl>
+                        <Input
+                          type="text"
+                          placeholder={editingCampaign?.hasPassword ? "Neues Passwort (oder leer lassen)" : "z.B. TSV2026"}
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          data-testid="input-campaign-password"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <div className="flex justify-end gap-3">
                   <Button
                     type="button"
@@ -444,6 +522,12 @@ export default function CampaignsPage() {
                       <CardTitle className="flex items-center gap-2">
                         {campaign.name}
                         <Badge variant={status.variant}>{status.label}</Badge>
+                        {campaign.hasPassword && (
+                          <Badge variant="outline" className="gap-1" data-testid={`badge-password-${campaign.id}`}>
+                            <Lock className="h-3 w-3" />
+                            Passwort
+                          </Badge>
+                        )}
                       </CardTitle>
                       <CardDescription className="mt-1">
                         {format(parseISO(campaign.startDate), "dd. MMM yyyy", { locale: de })} -{" "}

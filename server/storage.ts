@@ -39,6 +39,7 @@ export interface IStorage {
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, campaign: Partial<InsertCampaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string): Promise<boolean>;
+  getCampaignPassword(id: string): Promise<string | null>;
 
   // Orders
   getAllOrders(): Promise<Order[]>;
@@ -164,6 +165,7 @@ export class MemStorage implements IStorage {
       endDate: nextMonth.toISOString().split("T")[0],
       active: true,
       productIds: Array.from(this.products.keys()),
+      hasPassword: false,
     };
 
     this.campaigns.set(sampleCampaign.id, sampleCampaign);
@@ -304,23 +306,47 @@ export class MemStorage implements IStorage {
     return this.campaigns.get(id);
   }
 
+  private campaignPasswords = new Map<string, string | null>();
+
   async createCampaign(insertCampaign: InsertCampaign): Promise<Campaign> {
     const id = randomUUID();
-    const campaign: Campaign = { ...insertCampaign, id };
+    const { password, ...rest } = insertCampaign;
+    const campaign: Campaign = {
+      id,
+      name: rest.name,
+      description: rest.description,
+      startDate: rest.startDate,
+      endDate: rest.endDate,
+      active: rest.active ?? true,
+      productIds: rest.productIds ?? [],
+      hasPassword: !!password,
+    };
     this.campaigns.set(id, campaign);
+    this.campaignPasswords.set(id, password ?? null);
     return campaign;
   }
 
   async updateCampaign(id: string, data: Partial<InsertCampaign>): Promise<Campaign | undefined> {
     const existing = this.campaigns.get(id);
     if (!existing) return undefined;
-    const updated: Campaign = { ...existing, ...data };
+    const { password, ...rest } = data;
+    const updated: Campaign = {
+      ...existing,
+      ...rest,
+      hasPassword: password === undefined ? existing.hasPassword : !!password,
+    };
+    if (password !== undefined) this.campaignPasswords.set(id, password ?? null);
     this.campaigns.set(id, updated);
     return updated;
   }
 
   async deleteCampaign(id: string): Promise<boolean> {
+    this.campaignPasswords.delete(id);
     return this.campaigns.delete(id);
+  }
+
+  async getCampaignPassword(id: string): Promise<string | null> {
+    return this.campaignPasswords.get(id) ?? null;
   }
 
   // Orders

@@ -67,6 +67,20 @@ export default function OrderFormPage() {
   const { toast } = useToast();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderComplete, setOrderComplete] = useState(false);
+  // Wenn die Kampagne passwortgeschützt ist, speichern wir das eingegebene Passwort
+  // für die aktuelle Browser-Session, damit ein Reload nicht zur Neueingabe zwingt.
+  const passwordStorageKey = campaignId ? `campaign-password:${campaignId}` : null;
+  const [campaignPassword, setCampaignPassword] = useState<string | null>(() => {
+    if (!passwordStorageKey) return null;
+    try {
+      return sessionStorage.getItem(passwordStorageKey);
+    } catch {
+      return null;
+    }
+  });
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [verifyingPassword, setVerifyingPassword] = useState(false);
 
   const { data: campaign, isLoading: campaignLoading, error: campaignError } = useQuery<Campaign>({
     queryKey: ["/api/campaigns", campaignId],
@@ -107,6 +121,7 @@ export default function OrderFormPage() {
         firstName: data.firstName,
         lastName: data.lastName,
         items: orderItems,
+        ...(campaignPassword ? { campaignPassword } : {}),
       });
     },
     onSuccess: () => {
@@ -114,7 +129,25 @@ export default function OrderFormPage() {
       setCart([]);
       form.reset();
     },
-    onError: () => {
+    onError: (err: Error) => {
+      // Falls das Bestell-Passwort serverseitig abgelehnt wurde (z.B. Admin hat es geändert),
+      // löschen wir das gespeicherte Passwort und zwingen den Besteller zur Neueingabe.
+      if (err.message.startsWith("401") && campaign?.hasPassword) {
+        if (passwordStorageKey) {
+          try {
+            sessionStorage.removeItem(passwordStorageKey);
+          } catch {
+            // ignore
+          }
+        }
+        setCampaignPassword(null);
+        toast({
+          title: "Passwort abgelaufen",
+          description: "Das Bestell-Passwort wurde geändert. Bitte gib es erneut ein.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         title: "Fehler",
         description: "Die Bestellung konnte nicht abgeschickt werden. Bitte versuche es erneut.",
@@ -267,6 +300,115 @@ export default function OrderFormPage() {
             <Calendar className="h-12 w-12 text-muted-foreground mb-4" />
             <h2 className="text-xl font-semibold mb-2">{campaign.name}</h2>
             <p className="text-muted-foreground text-center">{status.message}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Passwort-Gate: Wenn die Kampagne passwortgeschützt ist und noch kein gültiges
+  // Passwort in der Session liegt, zeigen wir eine Eingabemaske statt des Formulars.
+  if (campaign.hasPassword && !campaignPassword) {
+    const verifyPassword = async () => {
+      if (!passwordInput || !campaignId) return;
+      setVerifyingPassword(true);
+      setPasswordError(null);
+      try {
+        const res = await fetch(`/api/campaigns/${campaignId}/verify-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: passwordInput }),
+          credentials: "include",
+        });
+        if (res.ok) {
+          setCampaignPassword(passwordInput);
+          if (passwordStorageKey) {
+            try {
+              sessionStorage.setItem(passwordStorageKey, passwordInput);
+            } catch {
+              // sessionStorage kann blockiert sein (Private Mode) — egal, das Passwort lebt dann nur im State
+            }
+          }
+          setPasswordInput("");
+        } else if (res.status === 401) {
+          setPasswordError("Das Passwort ist leider falsch.");
+        } else if (res.status === 429) {
+          setPasswordError("Zu viele Versuche. Bitte warte 15 Minuten und versuche es erneut.");
+        } else {
+          setPasswordError("Die Prüfung ist fehlgeschlagen. Bitte versuche es erneut.");
+        }
+      } catch {
+        setPasswordError("Netzwerkfehler. Bitte versuche es erneut.");
+      } finally {
+        setVerifyingPassword(false);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <div className="flex justify-center mb-2">
+              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <Lock className="h-6 w-6 text-primary" />
+              </div>
+            </div>
+            <CardTitle className="text-center">{campaign.name}</CardTitle>
+            <CardDescription className="text-center">
+              Diese Sammelbestellung ist passwortgeschützt. Bitte gib das Passwort ein,
+              das du vom Verein erhalten hast.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                verifyPassword();
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <Label htmlFor="campaign-password">Passwort</Label>
+                <Input
+                  id="campaign-password"
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => {
+                    setPasswordInput(e.target.value);
+                    setPasswordError(null);
+                  }}
+                  placeholder="Passwort eingeben"
+                  disabled={verifyingPassword}
+                  autoFocus
+                  data-testid="input-gate-password"
+                />
+                {passwordError && (
+                  <p className="text-sm text-destructive mt-2" data-testid="text-gate-error">
+                    {passwordError}
+                  </p>
+                )}
+              </div>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={verifyingPassword || !passwordInput}
+                data-testid="button-gate-submit"
+              >
+                {verifyingPassword ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Prüfe...
+                  </>
+                ) : (
+                  "Weiter zur Bestellung"
+                )}
+              </Button>
+              <div className="text-center">
+                <Link href="/" className="text-sm text-muted-foreground hover:underline">
+                  Zurück zur Startseite
+                </Link>
+              </div>
+            </form>
           </CardContent>
         </Card>
       </div>

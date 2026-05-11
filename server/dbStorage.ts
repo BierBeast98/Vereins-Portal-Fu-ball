@@ -90,6 +90,7 @@ export interface IDbStorage {
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, campaign: Partial<InsertCampaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string): Promise<boolean>;
+  getCampaignPassword(id: string): Promise<string | null>;
   // Orders
   getAllOrders(): Promise<Order[]>;
   getOrdersByCampaign(campaignId: string): Promise<Order[]>;
@@ -723,6 +724,7 @@ export class DbStorage implements IDbStorage {
       endDate: data.endDate,
       active: data.active ?? true,
       productIds: data.productIds ?? [],
+      password: data.password ?? null,
     }).returning();
     return dbCampaignToCampaign(row);
   }
@@ -735,6 +737,7 @@ export class DbStorage implements IDbStorage {
     if (data.endDate !== undefined) updateData.endDate = data.endDate;
     if (data.active !== undefined) updateData.active = data.active;
     if (data.productIds !== undefined) updateData.productIds = data.productIds;
+    if (data.password !== undefined) updateData.password = data.password;
     const [row] = await db.update(campaignsTable).set(updateData as any).where(eq(campaignsTable.id, id)).returning();
     return row ? dbCampaignToCampaign(row) : undefined;
   }
@@ -742,6 +745,11 @@ export class DbStorage implements IDbStorage {
   async deleteCampaign(id: string): Promise<boolean> {
     const result = await db.delete(campaignsTable).where(eq(campaignsTable.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async getCampaignPassword(id: string): Promise<string | null> {
+    const [row] = await db.select({ password: campaignsTable.password }).from(campaignsTable).where(eq(campaignsTable.id, id));
+    return row?.password ?? null;
   }
 
   // ============ ORDERS ============
@@ -816,6 +824,7 @@ function dbCampaignToCampaign(row: typeof campaignsTable.$inferSelect): Campaign
     endDate: row.endDate,
     active: row.active,
     productIds: (row.productIds as string[]) ?? [],
+    hasPassword: !!row.password,
   };
 }
 

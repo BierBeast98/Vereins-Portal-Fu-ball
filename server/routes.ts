@@ -59,6 +59,16 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Kampagnen-Passwort: max 20 Versuche pro 15 Minuten pro IP → Brute-Force-Schutz
+const campaignPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "Zu viele Versuche. Bitte warte 15 Minuten." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+});
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -291,6 +301,29 @@ export async function registerRoutes(
     }
   });
 
+  // Kampagnen-Passwort prüfen (für Bestell-Gate vor dem Formular)
+  app.post("/api/campaigns/:id/verify-password", campaignPasswordLimiter, async (req, res) => {
+    try {
+      const { password } = req.body ?? {};
+      if (typeof password !== "string" || password.length === 0) {
+        return res.status(400).json({ error: "Passwort erforderlich" });
+      }
+      const stored = await dbStorage.getCampaignPassword(req.params.id as string);
+      if (stored === null) {
+        return res.status(400).json({ error: "Diese Kampagne ist nicht passwortgeschützt" });
+      }
+      if (password === stored) {
+        return res.json({ success: true });
+      }
+      // Kleine Verzögerung bei falschem Passwort (Timing-Angriff)
+      await new Promise((r) => setTimeout(r, 300));
+      return res.status(401).json({ error: "Falsches Passwort" });
+    } catch (error) {
+      console.error("[POST /api/campaigns/:id/verify-password] failed:", error);
+      res.status(500).json({ error: "Prüfung fehlgeschlagen" });
+    }
+  });
+
   app.post("/api/campaigns", requireAdmin, async (req, res) => {
     try {
       const data = insertCampaignSchema.parse(req.body);
@@ -354,18 +387,28 @@ export async function registerRoutes(
   app.post("/api/orders", async (req, res) => {
     try {
       const data = insertOrderSchema.parse(req.body);
+
+      // Passwortschutz: Wenn die Kampagne ein Passwort hat, muss es bei der Bestellung mitkommen und stimmen
+      const campaignPassword = await dbStorage.getCampaignPassword(data.campaignId);
+      if (campaignPassword !== null) {
+        if (!data.campaignPassword || data.campaignPassword !== campaignPassword) {
+          return res.status(401).json({ error: "Bestellungs-Passwort fehlt oder ist falsch" });
+        }
+      }
+
       const order = await dbStorage.createOrder(data);
-      
+
       // Send confirmation email (don't wait for it, don't fail if it fails)
       sendOrderConfirmation(order).catch((err) => {
         console.error("E-Mail-Versand fehlgeschlagen:", err);
       });
-      
+
       res.status(201).json(order);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
+      console.error("[POST /api/orders] failed:", error);
       res.status(500).json({ error: "Failed to create order" });
     }
   });

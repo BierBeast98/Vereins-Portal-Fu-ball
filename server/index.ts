@@ -214,6 +214,8 @@ app.use((req, res, next) => {
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )
     `);
+    // Per-campaign Bestellungs-Passwort (nullable = keine Beschränkung)
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS password VARCHAR(255)`);
     log("DB migration: campaigns table ensured", "migration");
   } catch (err) {
     console.error("[migration] Failed to ensure campaigns table:", err);
