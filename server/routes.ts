@@ -152,7 +152,9 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      res.status(500).json({ error: "Failed to create product" });
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[POST /api/products] failed:", error);
+      res.status(500).json({ error: "Failed to create product", detail: message });
     }
   });
 
