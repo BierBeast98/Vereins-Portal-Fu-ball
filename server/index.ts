@@ -278,6 +278,64 @@ app.use((req, res, next) => {
     console.error("[migration] Failed to ensure import_warnings table:", err);
   }
 
+  // DB migration: festivals (Helfer-Schichtplaner)
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS festivals (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(500) NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        location VARCHAR(500) NOT NULL DEFAULT '',
+        start_date VARCHAR(10) NOT NULL,
+        end_date VARCHAR(10) NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        password TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS festival_stations (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        festival_id VARCHAR(36) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_festival_stations_festival ON festival_stations(festival_id)`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS festival_shifts (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        festival_id VARCHAR(36) NOT NULL,
+        station_id VARCHAR(36) NOT NULL,
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP NOT NULL,
+        required_helpers INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_festival_shifts_festival ON festival_shifts(festival_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_festival_shifts_station ON festival_shifts(station_id)`);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS festival_signups (
+        id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
+        shift_id VARCHAR(36) NOT NULL,
+        helper_name VARCHAR(255) NOT NULL,
+        helper_phone VARCHAR(100) NOT NULL,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_festival_signups_shift ON festival_signups(shift_id)`);
+    // helper_phone wurde später optional gemacht – falls die Tabelle schon mit NOT NULL existiert, jetzt lockern
+    await db.execute(sql`ALTER TABLE festival_signups ALTER COLUMN helper_phone DROP NOT NULL`);
+    log("DB migration: festivals tables ensured", "migration");
+  } catch (err) {
+    console.error("[migration] Failed to create festivals tables:", err);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

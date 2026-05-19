@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import type { Campaign } from "@shared/schema";
+import type { Campaign, Festival } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, ArrowRight, Lock } from "lucide-react";
+import { Calendar, ArrowRight, Lock, PartyPopper, MapPin } from "lucide-react";
 import { format, parseISO, isPast, isFuture, isWithinInterval } from "date-fns";
 import { de } from "date-fns/locale";
 import tsvLogo from "@/TSV_Greding_logo_transparent.png";
@@ -16,6 +16,10 @@ import { MobileFieldCalendar } from "@/components/mobile-field-calendar";
 export default function HomePage() {
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns/active"],
+  });
+
+  const { data: festivals, isLoading: festivalsLoading } = useQuery<Festival[]>({
+    queryKey: ["/api/festivals/active"],
   });
 
   const [fieldView, setFieldView] = useState<"a" | "b">("a");
@@ -134,6 +138,72 @@ export default function HomePage() {
               </div>
             )}
           </>
+        )}
+
+        {(festivalsLoading || (festivals && festivals.length > 0)) && (
+          <section className="pt-8 border-t">
+            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
+              <PartyPopper className="h-6 w-6" />
+              Aktuelle Feste — Helfer gesucht!
+            </h2>
+            {festivalsLoading ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                {[1, 2].map((i) => (
+                  <Card key={i}>
+                    <CardHeader>
+                      <Skeleton className="h-6 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </CardHeader>
+                    <CardContent>
+                      <Skeleton className="h-16 w-full" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {festivals!.map((f) => (
+                  <Card key={f.id} className="hover-elevate">
+                    <CardHeader>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            {f.name}
+                            {f.hasPassword && <Lock className="h-4 w-4 text-muted-foreground" />}
+                          </CardTitle>
+                          <CardDescription className="mt-1 flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            {format(parseISO(f.startDate), "dd. MMMM yyyy", { locale: de })}
+                            {f.startDate !== f.endDate &&
+                              ` – ${format(parseISO(f.endDate), "dd. MMMM yyyy", { locale: de })}`}
+                          </CardDescription>
+                          {f.location && (
+                            <CardDescription className="mt-1 flex items-center gap-2">
+                              <MapPin className="h-4 w-4" />
+                              {f.location}
+                            </CardDescription>
+                          )}
+                        </div>
+                      </div>
+                    </CardHeader>
+                    {f.description && (
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">{f.description}</p>
+                      </CardContent>
+                    )}
+                    <CardFooter>
+                      <Link href={`/festival/${f.id}`} className="w-full">
+                        <Button className="w-full">
+                          Helfer-Schicht eintragen
+                          <ArrowRight className="h-4 w-4 ml-2" />
+                        </Button>
+                      </Link>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
         <section className="pt-8 border-t">

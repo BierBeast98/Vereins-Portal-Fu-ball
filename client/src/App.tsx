@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import NotFound from "@/pages/not-found";
 import HomePage from "@/pages/home";
 import OrderFormPage from "@/pages/order-form";
+import FestivalSignupPage from "@/pages/festival-signup";
 import AdminLoginPage from "@/pages/admin/login";
 import ProductsPage from "@/pages/admin/products";
 import CampaignsPage from "@/pages/admin/campaigns";
@@ -18,6 +19,8 @@ import CalendarPage from "@/pages/admin/calendar";
 import FieldsPage from "@/pages/admin/fields";
 import BfvImportPage from "@/pages/admin/bfv-import";
 import RequestsPage from "@/pages/admin/requests";
+import FestivalsPage from "@/pages/admin/festivals";
+import FestivalDetailPage from "@/pages/admin/festival-detail";
 import { Loader2 } from "lucide-react";
 
 function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -85,6 +88,8 @@ function Router() {
           <Route path="/admin/fields" component={FieldsPage} />
           <Route path="/admin/requests" component={RequestsPage} />
           <Route path="/admin/bfv-import" component={BfvImportPage} />
+          <Route path="/admin/festivals" component={FestivalsPage} />
+          <Route path="/admin/festivals/:festivalId" component={FestivalDetailPage} />
           <Route path="/admin/settings" component={SettingsPage} />
           <Route component={NotFound} />
         </Switch>
@@ -96,6 +101,7 @@ function Router() {
     <Switch>
       <Route path="/" component={HomePage} />
       <Route path="/order/:campaignId" component={OrderFormPage} />
+      <Route path="/festival/:festivalId" component={FestivalSignupPage} />
       <Route component={NotFound} />
     </Switch>
   );

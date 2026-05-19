@@ -1,4 +1,4 @@
-import { eq, and, between, or, isNull, desc } from "drizzle-orm";
+import { eq, and, between, or, isNull, desc, inArray, asc } from "drizzle-orm";
 import { db } from "./db";
 import {
   calendarEventsTable,
@@ -10,6 +10,10 @@ import {
   productsTable,
   campaignsTable,
   ordersTable,
+  festivalsTable,
+  festivalStationsTable,
+  festivalShiftsTable,
+  festivalSignupsTable,
   type CalendarEventDb,
   type InsertCalendarEventDb,
   type FieldMappingDb,
@@ -35,6 +39,15 @@ import {
   type InsertOrder,
   type OrderItem,
   type Size,
+  type Festival,
+  type InsertFestival,
+  type FestivalStation,
+  type InsertFestivalStation,
+  type FestivalShift,
+  type InsertFestivalShift,
+  type FestivalSignup,
+  type InsertFestivalSignup,
+  type BulkCreateShifts,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -97,6 +110,32 @@ export interface IDbStorage {
   getOrder(id: string): Promise<Order | undefined>;
   createOrder(order: InsertOrder): Promise<Order>;
   deleteOrder(id: string): Promise<boolean>;
+  // Festivals (Helfer-Schichtplaner)
+  getAllFestivals(): Promise<Festival[]>;
+  getActiveFestivals(): Promise<Festival[]>;
+  getFestival(id: string): Promise<Festival | undefined>;
+  /** Liefert das Klartext-Passwort des Festes oder null. Nur server-intern verwenden! */
+  getFestivalPassword(id: string): Promise<string | null>;
+  createFestival(data: InsertFestival): Promise<Festival>;
+  updateFestival(id: string, data: Partial<InsertFestival>): Promise<Festival | undefined>;
+  deleteFestival(id: string): Promise<boolean>;
+  // Stations
+  getStationsByFestival(festivalId: string): Promise<FestivalStation[]>;
+  createStation(festivalId: string, data: InsertFestivalStation): Promise<FestivalStation>;
+  updateStation(id: string, data: Partial<InsertFestivalStation>): Promise<FestivalStation | undefined>;
+  deleteStation(id: string): Promise<boolean>;
+  // Shifts
+  getShiftsByFestival(festivalId: string): Promise<FestivalShift[]>;
+  createShift(festivalId: string, data: InsertFestivalShift): Promise<FestivalShift>;
+  createShiftsBulk(festivalId: string, data: BulkCreateShifts): Promise<FestivalShift[]>;
+  updateShift(id: string, data: Partial<InsertFestivalShift>): Promise<FestivalShift | undefined>;
+  deleteShift(id: string): Promise<boolean>;
+  // Signups
+  getSignupsByFestival(festivalId: string): Promise<FestivalSignup[]>;
+  getSignupsByShift(shiftId: string): Promise<FestivalSignup[]>;
+  countSignupsForShift(shiftId: string): Promise<number>;
+  createSignup(data: InsertFestivalSignup): Promise<FestivalSignup>;
+  deleteSignup(id: string): Promise<boolean>;
 }
 
 function dbEventToCalendarEvent(dbEvent: CalendarEventDb): CalendarEvent {
@@ -791,6 +830,285 @@ export class DbStorage implements IDbStorage {
     const result = await db.delete(ordersTable).where(eq(ordersTable.id, id));
     return (result.rowCount ?? 0) > 0;
   }
+
+  // ============ FESTIVALS (Schichtplaner) ============
+
+  async getAllFestivals(): Promise<Festival[]> {
+    const rows = await db.select().from(festivalsTable).orderBy(desc(festivalsTable.startDate));
+    return rows.map(dbFestivalToFestival);
+  }
+
+  async getActiveFestivals(): Promise<Festival[]> {
+    const rows = await db
+      .select()
+      .from(festivalsTable)
+      .where(eq(festivalsTable.active, true))
+      .orderBy(festivalsTable.startDate);
+    return rows.map(dbFestivalToFestival);
+  }
+
+  async getFestival(id: string): Promise<Festival | undefined> {
+    const [row] = await db.select().from(festivalsTable).where(eq(festivalsTable.id, id));
+    return row ? dbFestivalToFestival(row) : undefined;
+  }
+
+  async getFestivalPassword(id: string): Promise<string | null> {
+    const [row] = await db
+      .select({ password: festivalsTable.password })
+      .from(festivalsTable)
+      .where(eq(festivalsTable.id, id));
+    return row?.password ?? null;
+  }
+
+  async createFestival(data: InsertFestival): Promise<Festival> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(festivalsTable)
+      .values({
+        id,
+        name: data.name,
+        description: data.description ?? "",
+        location: data.location ?? "",
+        startDate: data.startDate,
+        endDate: data.endDate,
+        active: data.active ?? true,
+        password: data.password ?? null,
+      })
+      .returning();
+    return dbFestivalToFestival(row);
+  }
+
+  async updateFestival(id: string, data: Partial<InsertFestival>): Promise<Festival | undefined> {
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.location !== undefined) updateData.location = data.location;
+    if (data.startDate !== undefined) updateData.startDate = data.startDate;
+    if (data.endDate !== undefined) updateData.endDate = data.endDate;
+    if (data.active !== undefined) updateData.active = data.active;
+    if (data.password !== undefined) {
+      updateData.password = data.password === "" ? null : data.password;
+    }
+    const [row] = await db
+      .update(festivalsTable)
+      .set(updateData as any)
+      .where(eq(festivalsTable.id, id))
+      .returning();
+    return row ? dbFestivalToFestival(row) : undefined;
+  }
+
+  async deleteFestival(id: string): Promise<boolean> {
+    // Kaskadierend: Signups → Shifts → Stations → Festival
+    const stations = await db
+      .select({ id: festivalStationsTable.id })
+      .from(festivalStationsTable)
+      .where(eq(festivalStationsTable.festivalId, id));
+    const shifts = await db
+      .select({ id: festivalShiftsTable.id })
+      .from(festivalShiftsTable)
+      .where(eq(festivalShiftsTable.festivalId, id));
+    const shiftIds = shifts.map((s) => s.id);
+    if (shiftIds.length > 0) {
+      await db.delete(festivalSignupsTable).where(inArray(festivalSignupsTable.shiftId, shiftIds));
+    }
+    await db.delete(festivalShiftsTable).where(eq(festivalShiftsTable.festivalId, id));
+    await db.delete(festivalStationsTable).where(eq(festivalStationsTable.festivalId, id));
+    const result = await db.delete(festivalsTable).where(eq(festivalsTable.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ----- Stations -----
+
+  async getStationsByFestival(festivalId: string): Promise<FestivalStation[]> {
+    const rows = await db
+      .select()
+      .from(festivalStationsTable)
+      .where(eq(festivalStationsTable.festivalId, festivalId))
+      .orderBy(asc(festivalStationsTable.displayOrder), asc(festivalStationsTable.createdAt));
+    return rows.map(dbStationToStation);
+  }
+
+  async createStation(festivalId: string, data: InsertFestivalStation): Promise<FestivalStation> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(festivalStationsTable)
+      .values({
+        id,
+        festivalId,
+        name: data.name,
+        description: data.description ?? null,
+        displayOrder: data.displayOrder ?? 0,
+      })
+      .returning();
+    return dbStationToStation(row);
+  }
+
+  async updateStation(id: string, data: Partial<InsertFestivalStation>): Promise<FestivalStation | undefined> {
+    const updateData: Record<string, unknown> = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description ?? null;
+    if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
+    const [row] = await db
+      .update(festivalStationsTable)
+      .set(updateData as any)
+      .where(eq(festivalStationsTable.id, id))
+      .returning();
+    return row ? dbStationToStation(row) : undefined;
+  }
+
+  async deleteStation(id: string): Promise<boolean> {
+    // Kaskadierend: Signups der Shifts → Shifts → Station
+    const shifts = await db
+      .select({ id: festivalShiftsTable.id })
+      .from(festivalShiftsTable)
+      .where(eq(festivalShiftsTable.stationId, id));
+    const shiftIds = shifts.map((s) => s.id);
+    if (shiftIds.length > 0) {
+      await db.delete(festivalSignupsTable).where(inArray(festivalSignupsTable.shiftId, shiftIds));
+    }
+    await db.delete(festivalShiftsTable).where(eq(festivalShiftsTable.stationId, id));
+    const result = await db.delete(festivalStationsTable).where(eq(festivalStationsTable.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ----- Shifts -----
+
+  async getShiftsByFestival(festivalId: string): Promise<FestivalShift[]> {
+    const rows = await db
+      .select()
+      .from(festivalShiftsTable)
+      .where(eq(festivalShiftsTable.festivalId, festivalId))
+      .orderBy(asc(festivalShiftsTable.startTime));
+    return rows.map(dbShiftToShift);
+  }
+
+  async createShift(festivalId: string, data: InsertFestivalShift): Promise<FestivalShift> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(festivalShiftsTable)
+      .values({
+        id,
+        festivalId,
+        stationId: data.stationId,
+        startTime: new Date(data.startTime),
+        endTime: new Date(data.endTime),
+        requiredHelpers: data.requiredHelpers ?? 1,
+      })
+      .returning();
+    return dbShiftToShift(row);
+  }
+
+  async createShiftsBulk(festivalId: string, data: BulkCreateShifts): Promise<FestivalShift[]> {
+    const start = new Date(data.startTime);
+    const end = new Date(data.endTime);
+    if (!(start.getTime() < end.getTime())) {
+      throw new Error("Endzeit muss nach der Startzeit liegen.");
+    }
+    const slotMs = data.slotDurationMinutes * 60 * 1000;
+    const inserts: Array<{
+      id: string;
+      festivalId: string;
+      stationId: string;
+      startTime: Date;
+      endTime: Date;
+      requiredHelpers: number;
+    }> = [];
+    for (const stationId of data.stationIds) {
+      let cursor = start.getTime();
+      while (cursor + slotMs <= end.getTime() + 1) {
+        const slotStart = new Date(cursor);
+        const slotEnd = new Date(cursor + slotMs);
+        // Schutz: slot darf nicht über end hinausgehen
+        if (slotEnd.getTime() > end.getTime()) break;
+        inserts.push({
+          id: randomUUID(),
+          festivalId,
+          stationId,
+          startTime: slotStart,
+          endTime: slotEnd,
+          requiredHelpers: data.requiredHelpers ?? 1,
+        });
+        cursor += slotMs;
+      }
+    }
+    if (inserts.length === 0) return [];
+    const rows = await db.insert(festivalShiftsTable).values(inserts).returning();
+    return rows.map(dbShiftToShift);
+  }
+
+  async updateShift(id: string, data: Partial<InsertFestivalShift>): Promise<FestivalShift | undefined> {
+    const updateData: Record<string, unknown> = {};
+    if (data.stationId !== undefined) updateData.stationId = data.stationId;
+    if (data.startTime !== undefined) updateData.startTime = new Date(data.startTime);
+    if (data.endTime !== undefined) updateData.endTime = new Date(data.endTime);
+    if (data.requiredHelpers !== undefined) updateData.requiredHelpers = data.requiredHelpers;
+    const [row] = await db
+      .update(festivalShiftsTable)
+      .set(updateData as any)
+      .where(eq(festivalShiftsTable.id, id))
+      .returning();
+    return row ? dbShiftToShift(row) : undefined;
+  }
+
+  async deleteShift(id: string): Promise<boolean> {
+    await db.delete(festivalSignupsTable).where(eq(festivalSignupsTable.shiftId, id));
+    const result = await db.delete(festivalShiftsTable).where(eq(festivalShiftsTable.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ----- Signups -----
+
+  async getSignupsByFestival(festivalId: string): Promise<FestivalSignup[]> {
+    const shifts = await db
+      .select({ id: festivalShiftsTable.id })
+      .from(festivalShiftsTable)
+      .where(eq(festivalShiftsTable.festivalId, festivalId));
+    const shiftIds = shifts.map((s) => s.id);
+    if (shiftIds.length === 0) return [];
+    const rows = await db
+      .select()
+      .from(festivalSignupsTable)
+      .where(inArray(festivalSignupsTable.shiftId, shiftIds))
+      .orderBy(asc(festivalSignupsTable.createdAt));
+    return rows.map(dbSignupToSignup);
+  }
+
+  async getSignupsByShift(shiftId: string): Promise<FestivalSignup[]> {
+    const rows = await db
+      .select()
+      .from(festivalSignupsTable)
+      .where(eq(festivalSignupsTable.shiftId, shiftId))
+      .orderBy(asc(festivalSignupsTable.createdAt));
+    return rows.map(dbSignupToSignup);
+  }
+
+  async countSignupsForShift(shiftId: string): Promise<number> {
+    const rows = await db
+      .select({ id: festivalSignupsTable.id })
+      .from(festivalSignupsTable)
+      .where(eq(festivalSignupsTable.shiftId, shiftId));
+    return rows.length;
+  }
+
+  async createSignup(data: InsertFestivalSignup): Promise<FestivalSignup> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(festivalSignupsTable)
+      .values({
+        id,
+        shiftId: data.shiftId,
+        helperName: data.helperName,
+        helperPhone: data.helperPhone ?? null,
+        notes: data.notes ?? null,
+      })
+      .returning();
+    return dbSignupToSignup(row);
+  }
+
+  async deleteSignup(id: string): Promise<boolean> {
+    const result = await db.delete(festivalSignupsTable).where(eq(festivalSignupsTable.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
 }
 
 // ============ DB → Domain helpers ============
@@ -838,6 +1156,57 @@ function dbOrderToOrder(row: typeof ordersTable.$inferSelect): Order {
     lastName: row.lastName,
     items: (row.items as OrderItem[]) ?? [],
     totalAmount: row.totalAmount,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+// ----- Festival-Mapper (Passwort wird NIE durchgereicht) -----
+
+function dbFestivalToFestival(row: typeof festivalsTable.$inferSelect): Festival {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    location: row.location,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    active: row.active,
+    hasPassword: !!row.password,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function dbStationToStation(row: typeof festivalStationsTable.$inferSelect): FestivalStation {
+  return {
+    id: row.id,
+    festivalId: row.festivalId,
+    name: row.name,
+    description: row.description ?? undefined,
+    displayOrder: row.displayOrder,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function dbShiftToShift(row: typeof festivalShiftsTable.$inferSelect): FestivalShift {
+  return {
+    id: row.id,
+    festivalId: row.festivalId,
+    stationId: row.stationId,
+    startTime: row.startTime.toISOString(),
+    endTime: row.endTime.toISOString(),
+    requiredHelpers: row.requiredHelpers,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function dbSignupToSignup(row: typeof festivalSignupsTable.$inferSelect): FestivalSignup {
+  return {
+    id: row.id,
+    shiftId: row.shiftId,
+    helperName: row.helperName,
+    helperPhone: row.helperPhone ?? undefined,
+    notes: row.notes ?? undefined,
     createdAt: row.createdAt.toISOString(),
   };
 }

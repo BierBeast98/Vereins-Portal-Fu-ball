@@ -13,7 +13,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid, Download, ListChecks } from "lucide-react";
+import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid, Download, ListChecks, PartyPopper } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import tsvLogo from "@/TSV_Greding_logo_transparent.png";
 
@@ -55,6 +55,14 @@ const shopItems = [
     title: "Bestellungen",
     url: "/admin/orders",
     icon: ClipboardList,
+  },
+];
+
+const festivalItems = [
+  {
+    title: "Feste & Helfer",
+    url: "/admin/festivals",
+    icon: PartyPopper,
   },
 ];
 
@@ -124,6 +132,28 @@ export function AppSidebar() {
                   <SidebarMenuButton
                     asChild
                     isActive={location === item.url}
+                  >
+                    <Link href={item.url} data-testid={`link-${item.url.split('/').pop()}`}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Feste / Helfer-Schichtplaner */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Veranstaltungen</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {festivalItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.startsWith(item.url)}
                   >
                     <Link href={item.url} data-testid={`link-${item.url.split('/').pop()}`}>
                       <item.icon className="h-4 w-4" />

@@ -575,3 +575,173 @@ export const updateEventRequestStatusSchema = z.object({
   status: z.enum(EVENT_REQUEST_STATUSES),
   adminNote: z.string().optional(),
 });
+
+// ============================================
+// FESTIVALS / HELFER-SCHICHTPLANER
+// ============================================
+
+// Festivals (= Feste, an denen Helfer Schichten übernehmen)
+export const festivalsTable = pgTable("festivals", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 500 }).notNull(),
+  description: text("description").notNull().default(""),
+  location: varchar("location", { length: 500 }).notNull().default(""),
+  startDate: varchar("start_date", { length: 10 }).notNull(), // YYYY-MM-DD
+  endDate: varchar("end_date", { length: 10 }).notNull(),     // YYYY-MM-DD
+  active: boolean("active").notNull().default(true),
+  password: text("password"), // Klartext, optional – nur intern verglichen
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Stations (= Stände innerhalb eines Festes, z. B. "Ausschank", "Kuchen")
+export const festivalStationsTable = pgTable("festival_stations", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  festivalId: varchar("festival_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_festival_stations_festival").on(table.festivalId),
+]);
+
+// Shifts (= einzelne Zeitslots pro Stand)
+export const festivalShiftsTable = pgTable("festival_shifts", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  festivalId: varchar("festival_id", { length: 36 }).notNull(),
+  stationId: varchar("station_id", { length: 36 }).notNull(),
+  startTime: timestamp("start_time", { withTimezone: false }).notNull(),
+  endTime: timestamp("end_time", { withTimezone: false }).notNull(),
+  requiredHelpers: integer("required_helpers").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_festival_shifts_festival").on(table.festivalId),
+  index("idx_festival_shifts_station").on(table.stationId),
+]);
+
+// Signups (= Helfer-Eintragungen für einen konkreten Shift)
+export const festivalSignupsTable = pgTable("festival_signups", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  shiftId: varchar("shift_id", { length: 36 }).notNull(),
+  helperName: varchar("helper_name", { length: 255 }).notNull(),
+  helperPhone: varchar("helper_phone", { length: 100 }), // optional, wird im UI nicht mehr abgefragt
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_festival_signups_shift").on(table.shiftId),
+]);
+
+// --- Domain-Typen (Festival hat hasPassword statt password im Frontend) ---
+
+export interface Festival {
+  id: string;
+  name: string;
+  description: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  active: boolean;
+  hasPassword: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FestivalStation {
+  id: string;
+  festivalId: string;
+  name: string;
+  description?: string;
+  displayOrder: number;
+  createdAt: string;
+}
+
+export interface FestivalShift {
+  id: string;
+  festivalId: string;
+  stationId: string;
+  startTime: string; // ISO
+  endTime: string;   // ISO
+  requiredHelpers: number;
+  createdAt: string;
+}
+
+export interface FestivalSignup {
+  id: string;
+  shiftId: string;
+  helperName: string;
+  helperPhone?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** Aggregierte Sicht für die öffentliche Eintragungsseite. */
+export interface FestivalWithDetails extends Festival {
+  stations: FestivalStation[];
+  shifts: Array<FestivalShift & {
+    signedUpCount: number;
+    /** Namen der bereits eingetragenen Helfer (sichtbar für alle, kein Telefon). */
+    signedUpNames: string[];
+  }>;
+}
+
+/** Vollständige Admin-Sicht inkl. einzelner Signups. */
+export interface FestivalWithSignups extends Festival {
+  stations: FestivalStation[];
+  shifts: FestivalShift[];
+  signups: FestivalSignup[];
+}
+
+// --- Zod-Schemas (Insert / Update) ---
+
+export const insertFestivalSchema = z.object({
+  name: z.string().min(1, "Name ist erforderlich"),
+  description: z.string().default(""),
+  location: z.string().default(""),
+  startDate: z.string().min(1, "Startdatum ist erforderlich"),
+  endDate: z.string().min(1, "Enddatum ist erforderlich"),
+  active: z.boolean().default(true),
+  password: z.string().optional().nullable(),
+});
+export type InsertFestival = z.infer<typeof insertFestivalSchema>;
+
+export const insertFestivalStationSchema = z.object({
+  name: z.string().min(1, "Name des Standes ist erforderlich"),
+  description: z.string().optional(),
+  displayOrder: z.number().int().default(0),
+});
+export type InsertFestivalStation = z.infer<typeof insertFestivalStationSchema>;
+
+export const insertFestivalShiftSchema = z.object({
+  stationId: z.string().min(1),
+  startTime: z.string().min(1, "Startzeit ist erforderlich"),
+  endTime: z.string().min(1, "Endzeit ist erforderlich"),
+  requiredHelpers: z.number().int().min(1).default(1),
+});
+export type InsertFestivalShift = z.infer<typeof insertFestivalShiftSchema>;
+
+/** Bulk-Slot-Generator: erzeugt für mehrere Stände gleichartige Zeitslots. */
+export const bulkCreateShiftsSchema = z.object({
+  stationIds: z.array(z.string().min(1)).min(1, "Mindestens einen Stand wählen"),
+  startTime: z.string().min(1, "Startzeit ist erforderlich"), // ISO datetime
+  endTime: z.string().min(1, "Endzeit ist erforderlich"),     // ISO datetime
+  slotDurationMinutes: z.number().int().min(15, "Mindestens 15 Minuten"),
+  requiredHelpers: z.number().int().min(1).default(1),
+});
+export type BulkCreateShifts = z.infer<typeof bulkCreateShiftsSchema>;
+
+export const insertFestivalSignupSchema = z.object({
+  shiftId: z.string().min(1),
+  helperName: z.string().min(1, "Name ist erforderlich"),
+  helperPhone: z.string().optional(),
+  notes: z.string().optional(),
+  /** Wird vom Frontend mitgeschickt, wenn das Fest passwortgeschützt ist. */
+  festivalPassword: z.string().optional(),
+});
+export type InsertFestivalSignup = z.infer<typeof insertFestivalSignupSchema>;
+
+export const verifyFestivalPasswordSchema = z.object({
+  festivalId: z.string().min(1),
+  password: z.string().min(1),
+});
+export type VerifyFestivalPassword = z.infer<typeof verifyFestivalPasswordSchema>;

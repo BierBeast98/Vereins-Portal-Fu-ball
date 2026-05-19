@@ -3,14 +3,20 @@ import { createServer, type Server } from "http";
 import { dbStorage } from "./dbStorage";
 import rateLimit from "express-rate-limit";
 import { parseStartEndInBerlin } from "./dateTimeBerlin";
-import { 
-  insertProductSchema, 
-  insertCampaignSchema, 
+import {
+  insertProductSchema,
+  insertCampaignSchema,
   insertOrderSchema,
   insertCalendarEventSchema,
   insertFieldMappingSchema,
   insertEventRequestSchema,
   EVENT_REQUEST_STATUSES,
+  insertFestivalSchema,
+  insertFestivalStationSchema,
+  insertFestivalShiftSchema,
+  insertFestivalSignupSchema,
+  bulkCreateShiftsSchema,
+  verifyFestivalPasswordSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { sendOrderConfirmation, sendEventRequestNotification } from "./email";
@@ -1000,6 +1006,382 @@ export async function registerRoutes(
   });
 
   startBfvScheduler();
+
+  // ============================================================
+  // FESTIVALS / HELFER-SCHICHTPLANER
+  // ============================================================
+
+  /** Hilfsfunktion: Lädt Fest + Stände + Shifts + Belegungszahlen + Namen pro Shift. */
+  async function loadFestivalWithDetails(festivalId: string) {
+    const festival = await dbStorage.getFestival(festivalId);
+    if (!festival) return null;
+    const [stations, shifts, signups] = await Promise.all([
+      dbStorage.getStationsByFestival(festivalId),
+      dbStorage.getShiftsByFestival(festivalId),
+      dbStorage.getSignupsByFestival(festivalId),
+    ]);
+    const namesByShift = new Map<string, string[]>();
+    for (const s of signups) {
+      const arr = namesByShift.get(s.shiftId) ?? [];
+      arr.push(s.helperName);
+      namesByShift.set(s.shiftId, arr);
+    }
+    return {
+      festival,
+      stations,
+      shifts: shifts.map((shift) => {
+        const names = namesByShift.get(shift.id) ?? [];
+        return {
+          ...shift,
+          signedUpCount: names.length,
+          signedUpNames: names,
+        };
+      }),
+    };
+  }
+
+  // ---- Public: aktive Feste für Startseite ----
+  app.get("/api/festivals/active", async (_req, res) => {
+    try {
+      const festivals = await dbStorage.getActiveFestivals();
+      res.json(festivals);
+    } catch (err) {
+      console.error("[festivals/active]", err);
+      res.status(500).json({ error: "Aktive Feste konnten nicht geladen werden" });
+    }
+  });
+
+  // ---- Public: Fest-Details mit Belegungszahlen ----
+  app.get("/api/festivals/:id", async (req, res) => {
+    try {
+      const details = await loadFestivalWithDetails(req.params.id as string);
+      if (!details) {
+        return res.status(404).json({ error: "Fest nicht gefunden" });
+      }
+      const { festival, stations, shifts } = details;
+      res.json({
+        ...festival,
+        stations,
+        shifts,
+      });
+    } catch (err) {
+      console.error("[festivals/:id]", err);
+      res.status(500).json({ error: "Fest konnte nicht geladen werden" });
+    }
+  });
+
+  // ---- Public: Passwort prüfen (Rate-Limit) ----
+  app.post("/api/festivals/verify-password", loginLimiter, async (req, res) => {
+    try {
+      const data = verifyFestivalPasswordSchema.parse(req.body);
+      const stored = await dbStorage.getFestivalPassword(data.festivalId);
+      if (!stored) {
+        // Kein Passwort gesetzt → immer als korrekt durchwinken
+        return res.json({ success: true });
+      }
+      if (stored === data.password) {
+        return res.json({ success: true });
+      }
+      await new Promise((r) => setTimeout(r, 300));
+      return res.status(401).json({ error: "Falsches Passwort" });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[festivals/verify-password]", err);
+      res.status(500).json({ error: "Passwortprüfung fehlgeschlagen" });
+    }
+  });
+
+  // ---- Public: neue Helfer-Eintragung ----
+  app.post("/api/festivals/:id/signups", async (req, res) => {
+    try {
+      const festivalId = req.params.id as string;
+      const data = insertFestivalSignupSchema.parse(req.body);
+      const festival = await dbStorage.getFestival(festivalId);
+      if (!festival || !festival.active) {
+        return res.status(404).json({ error: "Fest nicht verfügbar" });
+      }
+      // Passwort-Check als 2. Verteidigungslinie (Frontend-Gate ist nicht genug)
+      const storedPassword = await dbStorage.getFestivalPassword(festivalId);
+      if (storedPassword && storedPassword !== data.festivalPassword) {
+        return res.status(401).json({ error: "Passwort erforderlich" });
+      }
+      // Shift validieren: existiert, gehört zum Fest, ist nicht voll
+      const shifts = await dbStorage.getShiftsByFestival(festivalId);
+      const shift = shifts.find((s) => s.id === data.shiftId);
+      if (!shift) {
+        return res.status(404).json({ error: "Schicht nicht gefunden" });
+      }
+      const count = await dbStorage.countSignupsForShift(shift.id);
+      if (count >= shift.requiredHelpers) {
+        return res.status(409).json({ error: "Diese Schicht ist bereits voll besetzt." });
+      }
+      const signup = await dbStorage.createSignup({
+        shiftId: data.shiftId,
+        helperName: data.helperName.trim(),
+        helperPhone: data.helperPhone?.trim() || undefined,
+        notes: data.notes?.trim() || undefined,
+      });
+      res.status(201).json(signup);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[festivals/:id/signups]", err);
+      res.status(500).json({ error: "Eintragung fehlgeschlagen" });
+    }
+  });
+
+  // ---- Admin: alle Feste ----
+  app.get("/api/admin/festivals", requireAdmin, async (_req, res) => {
+    try {
+      const festivals = await dbStorage.getAllFestivals();
+      res.json(festivals);
+    } catch (err) {
+      console.error("[admin/festivals]", err);
+      res.status(500).json({ error: "Feste konnten nicht geladen werden" });
+    }
+  });
+
+  // ---- Admin: Fest anlegen ----
+  app.post("/api/admin/festivals", requireAdmin, async (req, res) => {
+    try {
+      const data = insertFestivalSchema.parse(req.body);
+      const festival = await dbStorage.createFestival(data);
+      res.status(201).json(festival);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[admin/festivals POST]", err);
+      res.status(500).json({ error: "Fest konnte nicht angelegt werden" });
+    }
+  });
+
+  // ---- Admin: Fest aktualisieren ----
+  app.patch("/api/admin/festivals/:id", requireAdmin, async (req, res) => {
+    try {
+      const data = insertFestivalSchema.partial().parse(req.body);
+      const festival = await dbStorage.updateFestival(req.params.id as string, data);
+      if (!festival) return res.status(404).json({ error: "Fest nicht gefunden" });
+      res.json(festival);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[admin/festivals PATCH]", err);
+      res.status(500).json({ error: "Fest konnte nicht aktualisiert werden" });
+    }
+  });
+
+  // ---- Admin: Fest löschen (kaskadierend) ----
+  app.delete("/api/admin/festivals/:id", requireAdmin, async (req, res) => {
+    try {
+      const ok = await dbStorage.deleteFestival(req.params.id as string);
+      if (!ok) return res.status(404).json({ error: "Fest nicht gefunden" });
+      res.status(204).send();
+    } catch (err) {
+      console.error("[admin/festivals DELETE]", err);
+      res.status(500).json({ error: "Fest konnte nicht gelöscht werden" });
+    }
+  });
+
+  // ---- Admin: Detailansicht inkl. Signups ----
+  app.get("/api/admin/festivals/:id/full", requireAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const festival = await dbStorage.getFestival(id);
+      if (!festival) return res.status(404).json({ error: "Fest nicht gefunden" });
+      const [stations, shifts, signups] = await Promise.all([
+        dbStorage.getStationsByFestival(id),
+        dbStorage.getShiftsByFestival(id),
+        dbStorage.getSignupsByFestival(id),
+      ]);
+      res.json({ ...festival, stations, shifts, signups });
+    } catch (err) {
+      console.error("[admin/festivals/:id/full]", err);
+      res.status(500).json({ error: "Detaildaten konnten nicht geladen werden" });
+    }
+  });
+
+  // ---- Admin: Stand hinzufügen ----
+  app.post("/api/admin/festivals/:id/stations", requireAdmin, async (req, res) => {
+    try {
+      const festivalId = req.params.id as string;
+      const festival = await dbStorage.getFestival(festivalId);
+      if (!festival) return res.status(404).json({ error: "Fest nicht gefunden" });
+      const data = insertFestivalStationSchema.parse(req.body);
+      const station = await dbStorage.createStation(festivalId, data);
+      res.status(201).json(station);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[admin/festivals/:id/stations POST]", err);
+      res.status(500).json({ error: "Stand konnte nicht angelegt werden" });
+    }
+  });
+
+  // ---- Admin: Stand aktualisieren ----
+  app.patch("/api/admin/festival-stations/:id", requireAdmin, async (req, res) => {
+    try {
+      const data = insertFestivalStationSchema.partial().parse(req.body);
+      const station = await dbStorage.updateStation(req.params.id as string, data);
+      if (!station) return res.status(404).json({ error: "Stand nicht gefunden" });
+      res.json(station);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[admin/festival-stations PATCH]", err);
+      res.status(500).json({ error: "Stand konnte nicht aktualisiert werden" });
+    }
+  });
+
+  // ---- Admin: Stand löschen ----
+  app.delete("/api/admin/festival-stations/:id", requireAdmin, async (req, res) => {
+    try {
+      const ok = await dbStorage.deleteStation(req.params.id as string);
+      if (!ok) return res.status(404).json({ error: "Stand nicht gefunden" });
+      res.status(204).send();
+    } catch (err) {
+      console.error("[admin/festival-stations DELETE]", err);
+      res.status(500).json({ error: "Stand konnte nicht gelöscht werden" });
+    }
+  });
+
+  // ---- Admin: Bulk-Slots erzeugen ----
+  app.post("/api/admin/festivals/:id/shifts/bulk", requireAdmin, async (req, res) => {
+    try {
+      const festivalId = req.params.id as string;
+      const festival = await dbStorage.getFestival(festivalId);
+      if (!festival) return res.status(404).json({ error: "Fest nicht gefunden" });
+      const data = bulkCreateShiftsSchema.parse(req.body);
+      // stationIds müssen alle zu diesem Fest gehören
+      const stations = await dbStorage.getStationsByFestival(festivalId);
+      const validIds = new Set(stations.map((s) => s.id));
+      const allValid = data.stationIds.every((id) => validIds.has(id));
+      if (!allValid) {
+        return res.status(400).json({ error: "Mindestens ein Stand gehört nicht zu diesem Fest" });
+      }
+      const shifts = await dbStorage.createShiftsBulk(festivalId, data);
+      res.status(201).json(shifts);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[admin/festivals/:id/shifts/bulk]", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : "Slots konnten nicht erzeugt werden" });
+    }
+  });
+
+  // ---- Admin: einzelnen Slot anlegen ----
+  app.post("/api/admin/festivals/:id/shifts", requireAdmin, async (req, res) => {
+    try {
+      const festivalId = req.params.id as string;
+      const festival = await dbStorage.getFestival(festivalId);
+      if (!festival) return res.status(404).json({ error: "Fest nicht gefunden" });
+      const data = insertFestivalShiftSchema.parse(req.body);
+      const shift = await dbStorage.createShift(festivalId, data);
+      res.status(201).json(shift);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[admin/festivals/:id/shifts POST]", err);
+      res.status(500).json({ error: "Slot konnte nicht angelegt werden" });
+    }
+  });
+
+  // ---- Admin: Slot aktualisieren ----
+  app.patch("/api/admin/festival-shifts/:id", requireAdmin, async (req, res) => {
+    try {
+      const data = insertFestivalShiftSchema.partial().parse(req.body);
+      const shift = await dbStorage.updateShift(req.params.id as string, data);
+      if (!shift) return res.status(404).json({ error: "Slot nicht gefunden" });
+      res.json(shift);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      console.error("[admin/festival-shifts PATCH]", err);
+      res.status(500).json({ error: "Slot konnte nicht aktualisiert werden" });
+    }
+  });
+
+  // ---- Admin: Slot löschen ----
+  app.delete("/api/admin/festival-shifts/:id", requireAdmin, async (req, res) => {
+    try {
+      const ok = await dbStorage.deleteShift(req.params.id as string);
+      if (!ok) return res.status(404).json({ error: "Slot nicht gefunden" });
+      res.status(204).send();
+    } catch (err) {
+      console.error("[admin/festival-shifts DELETE]", err);
+      res.status(500).json({ error: "Slot konnte nicht gelöscht werden" });
+    }
+  });
+
+  // ---- Admin: Eintragung löschen ----
+  app.delete("/api/admin/festival-signups/:id", requireAdmin, async (req, res) => {
+    try {
+      const ok = await dbStorage.deleteSignup(req.params.id as string);
+      if (!ok) return res.status(404).json({ error: "Eintragung nicht gefunden" });
+      res.status(204).send();
+    } catch (err) {
+      console.error("[admin/festival-signups DELETE]", err);
+      res.status(500).json({ error: "Eintragung konnte nicht gelöscht werden" });
+    }
+  });
+
+  // ---- Admin: CSV-Export aller Eintragungen ----
+  app.get("/api/admin/festivals/:id/export.csv", requireAdmin, async (req, res) => {
+    try {
+      const festivalId = req.params.id as string;
+      const festival = await dbStorage.getFestival(festivalId);
+      if (!festival) return res.status(404).json({ error: "Fest nicht gefunden" });
+      const [stations, shifts, signups] = await Promise.all([
+        dbStorage.getStationsByFestival(festivalId),
+        dbStorage.getShiftsByFestival(festivalId),
+        dbStorage.getSignupsByFestival(festivalId),
+      ]);
+      const stationById = new Map(stations.map((s) => [s.id, s]));
+      const shiftById = new Map(shifts.map((s) => [s.id, s]));
+      // Helfer-freundliches CSV: Stand, Slot-Start, Slot-Ende, Name, Notiz
+      const rows: string[] = [];
+      rows.push(["Stand", "Beginn", "Ende", "Name", "Notiz"].join(";"));
+      const sortedSignups = [...signups].sort((a, b) => {
+        const sa = shiftById.get(a.shiftId);
+        const sb = shiftById.get(b.shiftId);
+        if (!sa || !sb) return 0;
+        return new Date(sa.startTime).getTime() - new Date(sb.startTime).getTime();
+      });
+      const csvEscape = (v: string) => `"${(v ?? "").replace(/"/g, '""')}"`;
+      const fmt = (iso: string) =>
+        new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+      for (const su of sortedSignups) {
+        const shift = shiftById.get(su.shiftId);
+        const station = shift ? stationById.get(shift.stationId) : undefined;
+        rows.push(
+          [
+            csvEscape(station?.name ?? ""),
+            csvEscape(shift ? fmt(shift.startTime) : ""),
+            csvEscape(shift ? fmt(shift.endTime) : ""),
+            csvEscape(su.helperName),
+            csvEscape(su.notes ?? ""),
+          ].join(";"),
+        );
+      }
+      const csv = "﻿" + rows.join("\r\n"); // BOM für Excel-UTF-8
+      const safeName = festival.name.replace(/[^a-zA-Z0-9-_]+/g, "_");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="helfer_${safeName}.csv"`);
+      res.send(csv);
+    } catch (err) {
+      console.error("[admin/festivals/:id/export.csv]", err);
+      res.status(500).json({ error: "Export fehlgeschlagen" });
+    }
+  });
 
   return httpServer;
 }
