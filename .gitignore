@@ -36,3 +36,4 @@ tmp/
 # Claude session checkpoints
 .claude-checkpoint.md
 .claude-checkpoints/
+.claude/worktrees/
