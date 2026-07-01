@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -7,6 +7,7 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarHeader,
@@ -78,6 +79,22 @@ export function AppSidebar() {
   const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
+  // Anzahl offener Vorschläge — Query-Key teilt das Präfix der Requests-Seite,
+  // damit Freigeben/Ablehnen den Zähler sofort aktualisiert.
+  const { data: pendingCount = 0 } = useQuery<number>({
+    queryKey: ["/api/admin/event-requests", "pending-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/event-requests?status=pending", {
+        credentials: "include",
+      });
+      if (!res.ok) return 0; // z. B. 401 → still bleiben
+      const data = (await res.json()) as unknown[];
+      return Array.isArray(data) ? data.length : 0;
+    },
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+
   const logoutMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/auth/logout", {});
@@ -116,6 +133,11 @@ export function AppSidebar() {
                       <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
+                  {item.url === "/admin/requests" && pendingCount > 0 && (
+                    <SidebarMenuBadge className="bg-amber-500 text-white">
+                      {pendingCount}
+                    </SidebarMenuBadge>
+                  )}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

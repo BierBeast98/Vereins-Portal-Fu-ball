@@ -52,6 +52,38 @@ export async function checkFieldConflicts(
   };
 }
 
+export interface OccurrenceConflictCheckItem {
+  id: string;
+  pitch: Field;
+  startAt: string;
+  endAt: string;
+}
+
+/** Konflikt-Vorprüfung für mehrere Serien-Termine auf einmal (Admin-Dialog).
+ *  Nutzt dieselbe Ausschluss-Logik wie approveEventRequest, damit Vorprüfung
+ *  und Freigabe nie widersprüchlich sind. */
+export async function checkEventRequestConflicts(
+  items: OccurrenceConflictCheckItem[]
+): Promise<{ id: string; conflicts: { id: string; title: string; date: string; startTime: string; endTime: string }[] }[]> {
+  const results: { id: string; conflicts: { id: string; title: string; date: string; startTime: string; endTime: string }[] }[] = [];
+  for (const item of items) {
+    const existing = await dbStorage.getEventRequestById(item.id);
+    if (!existing) {
+      results.push({ id: item.id, conflicts: [] });
+      continue;
+    }
+    const excludeId = existing.type === "change_request" ? existing.targetEventId : existing.approvedEventId;
+    const { conflicts } = await checkFieldConflicts(
+      item.pitch,
+      new Date(item.startAt),
+      new Date(item.endAt),
+      excludeId ?? undefined
+    );
+    results.push({ id: item.id, conflicts });
+  }
+  return results;
+}
+
 export async function createEventRequestWithValidation(data: InsertEventRequest): Promise<{ request: EventRequest }> {
   const request = await dbStorage.createEventRequest(data);
   return { request };

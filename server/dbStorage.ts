@@ -446,13 +446,15 @@ export class DbStorage implements IDbStorage {
   }
 
   async clearFieldForAwayGames(): Promise<number> {
-    // Einmaliges UPDATE: Bei allen Spielen, die kein Heimspiel sind, Platz auf NULL setzen
+    // Nur BFV-Spiele: Bei manuell angelegten Spielen darf ein vom Admin
+    // gesetzter Platz den Import überleben.
     const updated = await db
       .update(calendarEventsTable)
       .set({ field: null, updatedAt: new Date() })
       .where(
         and(
           eq(calendarEventsTable.type, "spiel"),
+          eq(calendarEventsTable.source, "BFV"),
           or(eq(calendarEventsTable.isHomeGame, false), isNull(calendarEventsTable.isHomeGame))
         )
       )
@@ -461,7 +463,8 @@ export class DbStorage implements IDbStorage {
   }
 
   async createImportRun(): Promise<ImportRunDb> {
-    const [run] = await db.insert(importRunsTable).values({}).returning();
+    // startedAt explizit von der JS-Uhr, damit startedAt und finishedAt konsistent sind
+    const [run] = await db.insert(importRunsTable).values({ startedAt: new Date() }).returning();
     return run;
   }
 
@@ -573,24 +576,37 @@ export class DbStorage implements IDbStorage {
   }
 
   async initializeDefaultFieldMappings(): Promise<void> {
+    // Diff-basiert: nur fehlende team+eventType-Kombis anlegen, bestehende
+    // (ggf. vom Admin angepasste) Zuordnungen nie überschreiben.
     const existing = await this.getAllFieldMappings();
-    if (existing.length > 0) return;
+    const have = new Set(existing.map((m) => `${m.team}|${m.eventType}`));
 
     const defaultMappings: InsertFieldMapping[] = [
       { team: "herren", eventType: "spiel", defaultField: "a-platz" },
       { team: "herren", eventType: "training", defaultField: "a-platz" },
       { team: "herren2", eventType: "spiel", defaultField: "a-platz" },
       { team: "a-jugend", eventType: "spiel", defaultField: "a-platz" },
+      { team: "a-jugend-2", eventType: "spiel", defaultField: "a-platz" },
       { team: "b-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { team: "b-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { team: "c-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { team: "c-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { team: "d-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { team: "d-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { team: "e-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { team: "e-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { team: "f-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { team: "f-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { team: "g-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { team: "g-jugend-2", eventType: "spiel", defaultField: "b-platz" },
     ];
 
-    for (const mapping of defaultMappings) {
+    const missing = defaultMappings.filter((m) => !have.has(`${m.team}|${m.eventType}`));
+    for (const mapping of missing) {
       await this.createFieldMapping(mapping);
+    }
+    if (missing.length > 0) {
+      console.log(`[field-mappings] ${missing.length} Standard-Platz-Zuordnung(en) ergänzt.`);
     }
   }
 

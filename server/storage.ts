@@ -177,12 +177,19 @@ export class MemStorage implements IStorage {
       { id: randomUUID(), team: "herren", eventType: "training", defaultField: "a-platz" },
       { id: randomUUID(), team: "herren2", eventType: "spiel", defaultField: "a-platz" },
       { id: randomUUID(), team: "a-jugend", eventType: "spiel", defaultField: "a-platz" },
+      { id: randomUUID(), team: "a-jugend-2", eventType: "spiel", defaultField: "a-platz" },
       { id: randomUUID(), team: "b-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "b-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { id: randomUUID(), team: "c-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "c-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { id: randomUUID(), team: "d-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "d-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { id: randomUUID(), team: "e-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "e-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { id: randomUUID(), team: "f-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "f-jugend-2", eventType: "spiel", defaultField: "b-platz" },
       { id: randomUUID(), team: "g-jugend", eventType: "spiel", defaultField: "b-platz" },
+      { id: randomUUID(), team: "g-jugend-2", eventType: "spiel", defaultField: "b-platz" },
     ];
     mappings.forEach((m) => this.fieldMappings.set(m.id, m));
   }

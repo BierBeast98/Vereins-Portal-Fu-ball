@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { MonthGrid } from "@/components/month-grid";
 import {
   ChevronLeft,
   ChevronRight,
@@ -53,7 +54,6 @@ const MONTHS_DE = [
   "Juli", "August", "September", "Oktober", "November", "Dezember"
 ];
 
-const WEEKDAY_LETTERS = ["M", "D", "M", "D", "F", "S", "S"];
 
 function formatDate(date: Date): string {
   // Use local date formatting to avoid timezone issues
@@ -743,7 +743,6 @@ type ViewMode = "year" | "month" | "day";
 export default function CalendarPage() {
   const { toast } = useToast();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-  const [yearHalf, setYearHalf] = useState<1 | 2>(() => (new Date().getMonth() < 6 ? 1 : 2));
   const [viewMode, setViewMode] = useState<ViewMode>("year");
   const [selectedMonth, setSelectedMonth] = useState<number>(0);
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
@@ -786,6 +785,11 @@ export default function CalendarPage() {
     });
   }, [events, filterTeam, filterType]);
 
+  const conflictDates = useMemo(
+    () => new Set(conflicts.flatMap((c) => [c.event1.date, c.event2.date])),
+    [conflicts]
+  );
+
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
     filteredEvents.forEach((event) => {
@@ -816,10 +820,7 @@ export default function CalendarPage() {
   };
 
   const handleDayClick = (dateStr: string, month: number) => {
-    if (viewMode === "year") {
-      setSelectedMonth(month);
-      setViewMode("month");
-    } else if (viewMode === "month") {
+    if (viewMode === "month") {
       const dayEvents = eventsByDate.get(dateStr) || [];
       if (dayEvents.length === 0) {
         setSelectedDate(dateStr);
@@ -884,157 +885,56 @@ export default function CalendarPage() {
       "herren": "H1",
       "herren2": "H2",
       "a-jugend": "A",
+      "a-jugend-2": "A2",
       "b-jugend": "B",
+      "b-jugend-2": "B2",
       "c-jugend": "C",
+      "c-jugend-2": "C2",
       "d-jugend": "D",
+      "d-jugend-2": "D2",
       "e-jugend": "E",
+      "e-jugend-2": "E2",
       "f-jugend": "F",
+      "f-jugend-2": "F2",
       "g-jugend": "G",
+      "g-jugend-2": "G2",
       "damen": "D♀",
       "alte-herren": "AH",
     };
     return shortLabels[team] || "";
   };
 
-  const getEventDisplayLabel = (event: CalendarEvent): string => {
-    const teamShort = getTeamShortLabel(event.team);
-    const awayMarker = event.type === "spiel" && event.isHomeGame === false ? "(A)" : "";
-    if (teamShort) {
-      return `[${teamShort}]${awayMarker} ${event.title}`;
-    }
-    return awayMarker ? `${awayMarker} ${event.title}` : event.title;
-  };
-  
   const isAwayGame = (event: CalendarEvent): boolean => {
     return event.type === "spiel" && event.isHomeGame === false;
   };
 
-  const renderYearView = () => {
-    const monthsFirstHalf = [0, 1, 2, 3, 4, 5];
-    const monthsSecondHalf = [6, 7, 8, 9, 10, 11];
-    const monthsToShow = yearHalf === 1 ? monthsFirstHalf : monthsSecondHalf;
-
-    const renderMonthColumn = (month: number) => {
-      const days = getDaysInMonth(currentYear, month);
-      let lastWeek = -1;
-
-      return (
-        <div key={month} className="flex-1 min-w-0">
-          <div className="text-center font-semibold text-sm py-1 border-b bg-muted">
-            {MONTHS_DE[month]} {currentYear}
-          </div>
-          <div className="text-xs">
-            {days.map((date) => {
-              const dateStr = formatDate(date);
-              const dayOfWeek = date.getDay();
-              const weekdayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-              const weekNum = getWeekNumber(date);
-              const showWeekNum = weekNum !== lastWeek && (dayOfWeek === 0 || date.getDate() === 1);
-              lastWeek = weekNum;
-
-              const dayEvents = eventsByDate.get(dateStr) || [];
-              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-              const isToday = dateStr === today;
-              const hasConflict = conflicts.some(
-                (c) => c.event1.date === dateStr || c.event2.date === dateStr
-              );
-
-              const primaryEvent = dayEvents[0];
-
-              return (
-                <div
-                  key={dateStr}
-                  className={`
-                    flex items-center px-1 py-0.5 cursor-pointer border-b border-border/50
-                    ${isWeekend ? "bg-muted/50" : ""}
-                    ${isToday ? "bg-primary/20 font-bold" : ""}
-                    ${hasConflict ? "ring-1 ring-destructive ring-inset" : ""}
-                    hover:bg-accent/50 transition-colors
-                  `}
-                  onClick={() => handleDayClick(dateStr, month)}
-                  data-testid={`day-${dateStr}`}
-                >
-                  <span className="w-4 text-muted-foreground">{WEEKDAY_LETTERS[weekdayIndex]}</span>
-                  <span className={`w-5 text-right ${isToday ? "text-primary font-bold" : ""}`}>
-                    {date.getDate()}
-                  </span>
-                  <span className="flex-1 ml-1 flex items-center gap-0.5 min-w-0">
-                    {primaryEvent && (
-                      <span 
-                        className={`text-xs px-1 rounded truncate ${getEventColorClass(primaryEvent)} ${isAwayGame(primaryEvent) ? "italic border border-current" : ""}`}
-                        onClick={(e) => handleEventClick(primaryEvent, e)}
-                      >
-                        {(() => {
-                          const label = getEventDisplayLabel(primaryEvent);
-                          return label.length > 15 ? label.substring(0, 15) + "…" : label;
-                        })()}
-                      </span>
-                    )}
-                    {dayEvents.length > 1 && (
-                      <span className="flex-shrink-0 text-xs font-semibold bg-orange-500 text-white px-1 rounded">
-                        +{dayEvents.length - 1}
-                      </span>
-                    )}
-                  </span>
-                  {showWeekNum && (
-                    <span className="w-6 text-right text-muted-foreground font-medium">{weekNum}</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-    };
-
-    // Mobile: clickable month-card grid (all 12 months)
-    const renderMobileYearView = () => {
-      const allMonths = [0,1,2,3,4,5,6,7,8,9,10,11];
-      return (
-        <div className="grid grid-cols-3 gap-2">
-          {allMonths.map((month) => {
-            const days = getDaysInMonth(currentYear, month);
-            const monthEvents = days.flatMap((d) => eventsByDate.get(formatDate(d)) || []);
-            const hasConflict = days.some((d) => {
-              const ds = formatDate(d);
-              return conflicts.some((c) => c.event1.date === ds || c.event2.date === ds);
-            });
-            const hasToday = days.some((d) => formatDate(d) === today);
-            return (
-              <button
-                key={month}
-                className={[
-                  "flex flex-col items-start p-3 rounded-xl border bg-card text-left transition-colors active:bg-muted/60 hover:bg-muted/40",
-                  hasConflict ? "border-destructive" : "",
-                  hasToday ? "ring-2 ring-primary" : "",
-                ].filter(Boolean).join(" ")}
-                onClick={() => { setSelectedMonth(month); setViewMode("month"); }}
-                data-testid={`month-card-${month}`}
-              >
-                <span className="text-xs font-semibold text-muted-foreground">{MONTHS_DE[month]}</span>
-                <span className="text-xl font-bold mt-0.5">{monthEvents.length}</span>
-                <span className="text-[10px] text-muted-foreground">Termine</span>
-                {hasConflict && <AlertTriangle className="h-3 w-3 text-destructive mt-1" />}
-              </button>
-            );
-          })}
-        </div>
-      );
-    };
-
-    return (
-      <div className="space-y-4">
-        {/* Mobile: Monatsraster */}
-        <div className="sm:hidden">
-          {renderMobileYearView()}
-        </div>
-        {/* Desktop: Monatsspalten */}
-        <div className="hidden sm:grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          {monthsToShow.map(renderMonthColumn)}
-        </div>
-      </div>
-    );
-  };
+  // Kompakte Monatsraster: 12 Kacheln wie ein Wandkalender.
+  // Tag-Klick → Tagesansicht, Monatstitel-Klick → Monats-Liste.
+  const renderYearView = () => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
+      {Array.from({ length: 12 }, (_, month) => (
+        <Card key={month} className="p-3">
+          <MonthGrid
+            year={currentYear}
+            month={month}
+            title={MONTHS_DE[month]}
+            eventsByDate={eventsByDate}
+            conflictDates={conflictDates}
+            todayStr={today}
+            onDayClick={(dateStr) => {
+              setSelectedMonth(month);
+              setSelectedDate(dateStr);
+              setViewMode("day");
+            }}
+            onTitleClick={() => {
+              setSelectedMonth(month);
+              setViewMode("month");
+            }}
+          />
+        </Card>
+      ))}
+    </div>
+  );
 
   const renderMonthView = () => {
     const days = getDaysInMonth(currentYear, selectedMonth);
@@ -1094,9 +994,7 @@ export default function CalendarPage() {
               const dayEvents = eventsByDate.get(dateStr) || [];
               const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
               const isToday = dateStr === today;
-              const hasConflict = conflicts.some(
-                (c) => c.event1.date === dateStr || c.event2.date === dateStr
-              );
+              const hasConflict = conflictDates.has(dateStr);
 
               return (
                 <div
@@ -1314,27 +1212,6 @@ export default function CalendarPage() {
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <span className="w-px h-8 bg-border hidden sm:block" aria-hidden />
-          <div className="hidden sm:flex rounded-md border border-input overflow-hidden" role="group" aria-label="Jahreshälfte">
-            <Button
-              variant={yearHalf === 1 ? "default" : "ghost"}
-              size="sm"
-              className="rounded-none border-0"
-              onClick={() => setYearHalf(1)}
-              data-testid="button-half-1"
-            >
-              1. Halbjahr (Jan–Jun)
-            </Button>
-            <Button
-              variant={yearHalf === 2 ? "default" : "ghost"}
-              size="sm"
-              className="rounded-none border-0"
-              onClick={() => setYearHalf(2)}
-              data-testid="button-half-2"
-            >
-              2. Halbjahr (Jul–Dez)
-            </Button>
-          </div>
         </div>
       )}
 

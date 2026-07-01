@@ -345,16 +345,25 @@ export const EVENT_TYPES = [
 export type EventType = typeof EVENT_TYPES[number];
 
 // Teams/Mannschaften
+// Jede Jugend-Klasse hat eine optionale 2. Mannschaft (z. B. F1/F2) — der Klassen-Slug
+// ohne Suffix steht für die 1. Mannschaft bzw. die ganze Klasse (BFV-Import mappt dorthin).
 export const TEAMS = [
   "herren",
   "herren2",
   "a-jugend",
+  "a-jugend-2",
   "b-jugend",
+  "b-jugend-2",
   "c-jugend",
+  "c-jugend-2",
   "d-jugend",
+  "d-jugend-2",
   "e-jugend",
+  "e-jugend-2",
   "f-jugend",
+  "f-jugend-2",
   "g-jugend",
+  "g-jugend-2",
   "alte-herren"
 ] as const;
 export type Team = typeof TEAMS[number];
@@ -363,12 +372,19 @@ export const TEAM_LABELS: Record<Team, string> = {
   "herren": "Herren",
   "herren2": "Herren II",
   "a-jugend": "A-Jugend",
+  "a-jugend-2": "A-Jugend 2",
   "b-jugend": "B-Jugend",
+  "b-jugend-2": "B-Jugend 2",
   "c-jugend": "C-Jugend",
+  "c-jugend-2": "C-Jugend 2",
   "d-jugend": "D-Jugend",
+  "d-jugend-2": "D-Jugend 2",
   "e-jugend": "E-Jugend",
+  "e-jugend-2": "E-Jugend 2",
   "f-jugend": "F-Jugend",
+  "f-jugend-2": "F-Jugend 2",
   "g-jugend": "G-Jugend",
+  "g-jugend-2": "G-Jugend 2",
   "alte-herren": "Alte Herren"
 };
 
@@ -473,12 +489,19 @@ export const TEAM_COLORS_SPIEL: Record<Team, string> = {
   "herren": "bg-blue-600 text-white",
   "herren2": "bg-blue-500 text-white",
   "a-jugend": "bg-emerald-700 text-white",
+  "a-jugend-2": "bg-emerald-700 text-white",
   "b-jugend": "bg-emerald-600 text-white",
+  "b-jugend-2": "bg-emerald-600 text-white",
   "c-jugend": "bg-teal-600 text-white",
+  "c-jugend-2": "bg-teal-600 text-white",
   "d-jugend": "bg-teal-500 text-white",
+  "d-jugend-2": "bg-teal-500 text-white",
   "e-jugend": "bg-orange-500 text-white",
+  "e-jugend-2": "bg-orange-500 text-white",
   "f-jugend": "bg-orange-400 text-white",
+  "f-jugend-2": "bg-orange-400 text-white",
   "g-jugend": "bg-yellow-400 text-gray-900",
+  "g-jugend-2": "bg-yellow-400 text-gray-900",
   "alte-herren": "bg-slate-600 text-white",
 };
 
@@ -486,12 +509,19 @@ export const TEAM_COLORS_TRAINING: Record<Team, string> = {
   "herren": "bg-blue-200 text-blue-900 ring-1 ring-blue-600 dark:bg-blue-900/50 dark:text-blue-100 dark:ring-blue-400",
   "herren2": "bg-blue-100 text-blue-800 ring-1 ring-blue-500 dark:bg-blue-800/40 dark:text-blue-200 dark:ring-blue-300",
   "a-jugend": "bg-emerald-200 text-emerald-900 ring-1 ring-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-100 dark:ring-emerald-400",
+  "a-jugend-2": "bg-emerald-200 text-emerald-900 ring-1 ring-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-100 dark:ring-emerald-400",
   "b-jugend": "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-500 dark:bg-emerald-800/40 dark:text-emerald-200 dark:ring-emerald-300",
+  "b-jugend-2": "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-500 dark:bg-emerald-800/40 dark:text-emerald-200 dark:ring-emerald-300",
   "c-jugend": "bg-teal-200 text-teal-900 ring-1 ring-teal-600 dark:bg-teal-900/50 dark:text-teal-100 dark:ring-teal-400",
+  "c-jugend-2": "bg-teal-200 text-teal-900 ring-1 ring-teal-600 dark:bg-teal-900/50 dark:text-teal-100 dark:ring-teal-400",
   "d-jugend": "bg-teal-100 text-teal-800 ring-1 ring-teal-500 dark:bg-teal-800/40 dark:text-teal-200 dark:ring-teal-300",
+  "d-jugend-2": "bg-teal-100 text-teal-800 ring-1 ring-teal-500 dark:bg-teal-800/40 dark:text-teal-200 dark:ring-teal-300",
   "e-jugend": "bg-orange-200 text-orange-900 ring-1 ring-orange-500 dark:bg-orange-900/50 dark:text-orange-100 dark:ring-orange-400",
+  "e-jugend-2": "bg-orange-200 text-orange-900 ring-1 ring-orange-500 dark:bg-orange-900/50 dark:text-orange-100 dark:ring-orange-400",
   "f-jugend": "bg-orange-100 text-orange-800 ring-1 ring-orange-400 dark:bg-orange-800/40 dark:text-orange-200 dark:ring-orange-300",
+  "f-jugend-2": "bg-orange-100 text-orange-800 ring-1 ring-orange-400 dark:bg-orange-800/40 dark:text-orange-200 dark:ring-orange-300",
   "g-jugend": "bg-yellow-200 text-yellow-900 ring-1 ring-yellow-500 dark:bg-yellow-900/50 dark:text-yellow-100 dark:ring-yellow-400",
+  "g-jugend-2": "bg-yellow-200 text-yellow-900 ring-1 ring-yellow-500 dark:bg-yellow-900/50 dark:text-yellow-100 dark:ring-yellow-400",
   "alte-herren": "bg-slate-200 text-slate-800 ring-1 ring-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:ring-slate-400",
 };
 
@@ -507,12 +537,19 @@ export const TEAM_COLORS: Record<Team, string> = {
   "herren": "bg-blue-600",
   "herren2": "bg-blue-500",
   "a-jugend": "bg-emerald-700",
+  "a-jugend-2": "bg-emerald-700",
   "b-jugend": "bg-emerald-600",
+  "b-jugend-2": "bg-emerald-600",
   "c-jugend": "bg-teal-600",
+  "c-jugend-2": "bg-teal-600",
   "d-jugend": "bg-teal-500",
+  "d-jugend-2": "bg-teal-500",
   "e-jugend": "bg-orange-500",
+  "e-jugend-2": "bg-orange-500",
   "f-jugend": "bg-orange-400",
+  "f-jugend-2": "bg-orange-400",
   "g-jugend": "bg-yellow-400",
+  "g-jugend-2": "bg-yellow-400",
   "alte-herren": "bg-slate-600",
 };
 
@@ -520,12 +557,19 @@ export const TEAM_BORDER_COLORS: Record<Team, string> = {
   "herren": "border-blue-600",
   "herren2": "border-blue-500",
   "a-jugend": "border-emerald-600",
+  "a-jugend-2": "border-emerald-600",
   "b-jugend": "border-emerald-500",
+  "b-jugend-2": "border-emerald-500",
   "c-jugend": "border-teal-600",
+  "c-jugend-2": "border-teal-600",
   "d-jugend": "border-teal-500",
+  "d-jugend-2": "border-teal-500",
   "e-jugend": "border-orange-500",
+  "e-jugend-2": "border-orange-500",
   "f-jugend": "border-orange-400",
+  "f-jugend-2": "border-orange-400",
   "g-jugend": "border-yellow-500",
+  "g-jugend-2": "border-yellow-500",
   "alte-herren": "border-slate-600",
 };
 

@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FIELD_LABELS, FIELDS, TEAMS, TEAM_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 
 const TZ_BERLIN = "Europe/Berlin";
 
@@ -37,10 +39,46 @@ function isoToDatetimeLocalBerlin(iso: string): string {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour.padStart(2, "0")}:${parts.minute.padStart(2, "0")}`;
 }
 
+/** Start/Ende eines Serien-Termins: Datum vom jeweiligen Termin, Uhrzeit/Dauer aus den Dialog-Feldern */
+function computeOccurrenceTimes(req: EventRequest, baseStart: Date, durationMs: number): { start: Date; end: Date } {
+  const dateOnly = req.startAt.slice(0, 10); // YYYY-MM-DD
+  const start = new Date(dateOnly + "T00:00:00");
+  start.setHours(baseStart.getHours(), baseStart.getMinutes(), 0, 0);
+  const end = new Date(start.getTime() + durationMs);
+  return { start, end };
+}
+
+interface OccurrenceConflict {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
 interface RequestGroup {
   head: EventRequest;
   items: EventRequest[];
   count: number;
+}
+
+interface ApprovePayload {
+  title: string;
+  pitch: Field;
+  start: string;
+  end: string;
+  team?: Team;
+  adminNote?: string;
+  force?: boolean;
+  /** Termine, die der Admin aus der Serie ausgeschlossen hat → werden abgelehnt */
+  excludedIds: string[];
+  /** Termine, die trotz bekanntem Konflikt behalten wurden → einzeln mit force freigeben */
+  conflictIds: string[];
+}
+
+interface ApproveInput {
+  group: RequestGroup;
+  payload: ApprovePayload;
 }
 
 export default function RequestsPage() {
@@ -49,7 +87,7 @@ export default function RequestsPage() {
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected">("pending");
   const [selectedGroup, setSelectedGroup] = useState<RequestGroup | null>(null);
   const [conflictInfo, setConflictInfo] = useState<{
-    pendingApprove: Parameters<typeof approveMutation.mutate>[0];
+    pendingApprove: ApproveInput;
     conflicts: { title: string; date: string; startTime: string; endTime: string }[];
   } | null>(null);
 
@@ -102,10 +140,7 @@ export default function RequestsPage() {
   }, [requests]);
 
   const approveMutation = useMutation({
-    mutationFn: async (input: {
-      group: RequestGroup;
-      payload: { title: string; pitch: Field; start: string; end: string; team?: Team; adminNote?: string; force?: boolean };
-    }) => {
+    mutationFn: async (input: ApproveInput) => {
       const { group, payload } = input;
       if (!group) throw new Error("No selection");
 
@@ -116,16 +151,18 @@ export default function RequestsPage() {
       }
       const durationMs = baseEnd.getTime() - baseStart.getTime();
 
+      const included = group.items.filter((r) => !payload.excludedIds.includes(r.id));
+      if (included.length === 0) {
+        throw new Error("Alle Termine sind ausgeschlossen – zum Ablehnen der ganzen Serie bitte 'Ablehnen' nutzen.");
+      }
+
       // Gemeinsame Serien-ID für alle Kalender-Events der Serie
       const recurringGroupId =
         (crypto as any)?.randomUUID?.() ??
         Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-      for (const req of group.items) {
-        const dateOnly = req.startAt.slice(0, 10); // YYYY-MM-DD
-        const start = new Date(dateOnly + "T00:00:00");
-        start.setHours(baseStart.getHours(), baseStart.getMinutes(), 0, 0);
-        const end = new Date(start.getTime() + durationMs);
+      for (const req of included) {
+        const { start, end } = computeOccurrenceTimes(req, baseStart, durationMs);
 
         const body: any = {
           title: payload.title,
@@ -136,7 +173,8 @@ export default function RequestsPage() {
         };
         if (payload.team !== undefined) body.team = payload.team;
         if (payload.adminNote) body.adminNote = payload.adminNote;
-        if (payload.force) body.force = true;
+        // Bewusst behaltene Konflikt-Termine einzeln erzwingen
+        if (payload.force || payload.conflictIds.includes(req.id)) body.force = true;
 
         const res = await fetch(`/api/admin/event-requests/${req.id}/approve`, {
           method: "POST",
@@ -156,6 +194,24 @@ export default function RequestsPage() {
           throw new Error(data?.message || data?.error || "Freigabe fehlgeschlagen");
         }
         await res.json();
+      }
+
+      // Ausgeschlossene Termine erst NACH erfolgreicher Freigabe ablehnen
+      for (const req of group.items) {
+        if (!payload.excludedIds.includes(req.id)) continue;
+        const res = await fetch(`/api/admin/event-requests/${req.id}/reject`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            status: "rejected",
+            adminNote: payload.adminNote || "Einzeltermin aus Serie ausgeschlossen",
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Ausschluss eines Einzeltermins fehlgeschlagen");
+        }
       }
       return true;
     },
@@ -221,7 +277,7 @@ export default function RequestsPage() {
   const saveMutation = useMutation({
     mutationFn: async (input: {
       group: RequestGroup;
-      payload: { title: string; pitch: Field; start: string; end: string; team?: Team };
+      payload: { title: string; pitch: Field; start: string; end: string; team?: Team | "_none" };
     }) => {
       const { group, payload } = input;
       if (!group) throw new Error("No selection");
@@ -232,10 +288,7 @@ export default function RequestsPage() {
       }
       const durationMs = baseEnd.getTime() - baseStart.getTime();
       for (const req of group.items) {
-        const dateOnly = req.startAt.slice(0, 10);
-        const startAt = new Date(dateOnly + "T00:00:00");
-        startAt.setHours(baseStart.getHours(), baseStart.getMinutes(), 0, 0);
-        const endAt = new Date(startAt.getTime() + durationMs);
+        const { start: startAt, end: endAt } = computeOccurrenceTimes(req, baseStart, durationMs);
         const body: Record<string, unknown> = {
           title: payload.title,
           pitch: payload.pitch,
@@ -414,9 +467,15 @@ interface RequestDialogProps {
   group: RequestGroup;
   onClose: () => void;
   onSave: (payload: { title: string; pitch: Field; start: string; end: string; team?: Team | "_none" }) => void;
-  onApprove: (payload: { title: string; pitch: Field; start: string; end: string; team?: Team; adminNote?: string }) => void;
+  onApprove: (payload: ApprovePayload) => void;
   onReject: (note?: string) => void;
   isSaving?: boolean;
+}
+
+function formatOccurrence(start: Date, end?: Date): string {
+  const dateFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+  const timeFmt = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+  return `${dateFmt.format(start)} · ${timeFmt.format(start)}${end ? `–${timeFmt.format(end)}` : ""}`;
 }
 
 function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving = false }: RequestDialogProps) {
@@ -427,6 +486,69 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
   const [end, setEnd] = useState(() => isoToDatetimeLocalBerlin(head.endAt));
   const [team, setTeam] = useState<Team | "_none">((head.team as Team) || "_none");
   const [adminNote, setAdminNote] = useState(head.adminNote ?? "");
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+
+  const isPendingStatus = head.status === "pending";
+  const showOccurrences = head.type !== "delete_request";
+
+  // Termine mit den aktuell im Dialog eingestellten Zeiten (Datum je Termin, Uhrzeit/Dauer aus den Feldern)
+  const occurrences = useMemo(() => {
+    const baseStart = new Date(start);
+    const baseEnd = new Date(end);
+    if (isNaN(baseStart.getTime()) || isNaN(baseEnd.getTime()) || baseEnd.getTime() <= baseStart.getTime()) {
+      return null;
+    }
+    const durationMs = baseEnd.getTime() - baseStart.getTime();
+    return items.map((req) => {
+      const t = computeOccurrenceTimes(req, baseStart, durationMs);
+      return { id: req.id, start: t.start, end: t.end };
+    });
+  }, [items, start, end]);
+
+  // Konflikt-Vorprüfung beim Öffnen und bei jeder Änderung von Platz/Zeit
+  const { data: conflictMap, isFetching: checkingConflicts } = useQuery({
+    queryKey: [
+      "/api/admin/event-requests",
+      "check-conflicts",
+      items.map((i) => i.id).join(","),
+      pitch,
+      start,
+      end,
+    ],
+    enabled: isPendingStatus && showOccurrences && !!occurrences,
+    queryFn: async () => {
+      const res = await fetch("/api/admin/event-requests/check-conflicts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          items: (occurrences ?? []).map((o) => ({
+            id: o.id,
+            pitch,
+            startAt: o.start.toISOString(),
+            endAt: o.end.toISOString(),
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error("Konfliktprüfung fehlgeschlagen");
+      const data = (await res.json()) as { results: { id: string; conflicts: OccurrenceConflict[] }[] };
+      return new Map(data.results.map((r) => [r.id, r.conflicts]));
+    },
+  });
+
+  const includedCount = count - excludedIds.size;
+  const conflictIds = items
+    .filter((r) => !excludedIds.has(r.id) && (conflictMap?.get(r.id)?.length ?? 0) > 0)
+    .map((r) => r.id);
+
+  const toggleExcluded = (id: string) => {
+    setExcludedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const savePayload = () => ({
     title,
@@ -444,6 +566,8 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
     onApprove({
       ...savePayload(),
       adminNote: adminNote || undefined,
+      excludedIds: Array.from(excludedIds),
+      conflictIds,
     });
   };
 
@@ -473,14 +597,84 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
                 Änderungsvorschlag – der bestehende Termin wird mit den unten angegebenen Daten aktualisiert.
               </div>
             )}
-            {count > 1 && (
-              <div>
-                Serie mit {count} Terminen ·{" "}
-                {new Date(items[0].startAt).toLocaleDateString("de-DE", { timeZone: TZ_BERLIN })} –{" "}
-                {new Date(items[items.length - 1].startAt).toLocaleDateString("de-DE", { timeZone: TZ_BERLIN })}
-              </div>
-            )}
           </div>
+          {showOccurrences && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="font-medium">
+                  {count > 1 ? `Serie mit ${count} Terminen` : "Termin"}
+                  {excludedIds.size > 0 && (
+                    <span className="text-muted-foreground font-normal"> · {excludedIds.size} ausgeschlossen</span>
+                  )}
+                </span>
+                {checkingConflicts ? (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Prüfe Konflikte…
+                  </span>
+                ) : conflictIds.length > 0 ? (
+                  <span className="text-xs text-destructive flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {conflictIds.length} Termin{conflictIds.length === 1 ? "" : "e"} mit Konflikt
+                  </span>
+                ) : isPendingStatus && conflictMap ? (
+                  <span className="text-xs text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Keine Konflikte
+                  </span>
+                ) : null}
+              </div>
+              <div className="max-h-48 overflow-y-auto border rounded-md divide-y">
+                {items.map((req, idx) => {
+                  const conflicts = conflictMap?.get(req.id) ?? [];
+                  const excluded = excludedIds.has(req.id);
+                  const occ = occurrences?.[idx];
+                  return (
+                    <div
+                      key={req.id}
+                      className={`flex items-start gap-2 px-3 py-2 text-sm${excluded ? " opacity-50" : ""}`}
+                    >
+                      {isPendingStatus && count > 1 && (
+                        <Checkbox
+                          checked={!excluded}
+                          onCheckedChange={() => toggleExcluded(req.id)}
+                          className="mt-0.5"
+                          aria-label="Termin in Freigabe einschließen"
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className={excluded ? "line-through" : ""}>
+                          {occ ? formatOccurrence(occ.start, occ.end) : formatDateTime(req.startAt)}
+                        </span>
+                        {conflicts.length > 0 && !excluded && (
+                          <div className="text-xs text-destructive mt-0.5 space-y-0.5">
+                            {conflicts.map((c) => (
+                              <div key={c.id} className="truncate">
+                                Konflikt: {c.title} · {c.startTime}–{c.endTime}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="shrink-0 mt-0.5">
+                        {excluded ? null : checkingConflicts ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : conflicts.length > 0 ? (
+                          <AlertTriangle className="h-4 w-4 text-destructive" />
+                        ) : isPendingStatus && conflictMap ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600" />
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {count > 1 && isPendingStatus && (
+                <p className="text-xs text-muted-foreground">
+                  Abgewählte Termine werden bei der Freigabe automatisch abgelehnt. Termine mit Konflikt werden
+                  eingetragen, wenn sie ausgewählt bleiben.
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="title">Titel</Label>
@@ -563,11 +757,13 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
           </Button>
           <Button
             onClick={handleApprove}
-            disabled={isSaving}
+            disabled={isSaving || (showOccurrences && includedCount === 0)}
             variant={head.type === "delete_request" ? "destructive" : "default"}
           >
             {head.type === "delete_request"
               ? "Löschen bestätigen"
+              : excludedIds.size > 0
+              ? `Freigeben & eintragen (${includedCount} von ${count})`
               : `Freigeben & eintragen${count > 1 ? " (Serie)" : ""}`}
           </Button>
         </DialogFooter>

@@ -4,11 +4,13 @@
     {
       "name": "dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["tsx", "server/dev-entry.ts"],
+      "runtimeArgs": ["--yes", "tsx", "server/index.ts"],
       "env": {
-        "NODE_ENV": "development"
+        "NODE_ENV": "development",
+        "DATABASE_URL": "postgresql://a1@localhost:5432/vereinsportal",
+        "BFV_URL": "https://www.bfv.de/vereine/tsv-greding/00ES8GNKJO000005VV0AG08LVUPGND5I,https://www.bfv.de/vereine/jfg-jura-schwarzachtal/00V7CV4QQO000000VV0AG811VTEQ0GTM"
       },
-      "port": 5000,
+      "port": 3000,
       "autoPort": true
     }
   ]

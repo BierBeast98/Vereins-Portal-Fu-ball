@@ -11,6 +11,7 @@ import {
   insertFieldMappingSchema,
   insertEventRequestSchema,
   EVENT_REQUEST_STATUSES,
+  FIELDS,
   insertFestivalSchema,
   insertFestivalStationSchema,
   insertFestivalShiftSchema,
@@ -23,7 +24,7 @@ import { sendOrderConfirmation, sendEventRequestNotification } from "./email";
 import type { Team, InsertCalendarEvent, Field, EventRequestStatus } from "@shared/schema";
 import multer from "multer";
 import { processAndUploadImage, serveImage } from "./imageUpload";
-import { createEventRequestWithValidation, approveEventRequest, rejectEventRequest } from "./eventRequestService";
+import { createEventRequestWithValidation, approveEventRequest, rejectEventRequest, checkEventRequestConflicts } from "./eventRequestService";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -894,6 +895,33 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error rejecting event request:", error);
       res.status(500).json({ error: "Vorschlag konnte nicht abgelehnt werden" });
+    }
+  });
+
+  // Konflikt-Vorprüfung für Serien-Termine (Admin-Dialog), ohne etwas zu schreiben
+  app.post("/api/admin/event-requests/check-conflicts", requireAdmin, async (req, res) => {
+    try {
+      const schema = z.object({
+        items: z
+          .array(
+            z.object({
+              id: z.string(),
+              pitch: z.enum(FIELDS),
+              startAt: z.string(),
+              endAt: z.string(),
+            })
+          )
+          .max(200),
+      });
+      const { items } = schema.parse(req.body);
+      const results = await checkEventRequestConflicts(items);
+      res.json({ results });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error checking event request conflicts:", error);
+      res.status(500).json({ error: "Konfliktprüfung fehlgeschlagen" });
     }
   });
 
