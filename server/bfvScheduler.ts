@@ -80,6 +80,23 @@ export function startBfvScheduler(): void {
     await triggerBfvImportNow();
   }, IMPORT_INTERVAL_MS);
   console.log(`[BFV Scheduler] Started (${getBfvUrls().length} Quelle(n), interval: ${IMPORT_INTERVAL_MS / 3600000}h).`);
+
+  // Catch-up: Das Intervall allein reicht nicht — startet der Server öfter als alle
+  // 24h neu, würde der Import sonst nie laufen. Deshalb beim Start prüfen, ob der
+  // letzte Lauf zu alt ist, und ggf. kurz nach dem Boot nachholen.
+  void (async () => {
+    try {
+      const { dbStorage } = await import("./dbStorage");
+      const [lastRun] = await dbStorage.getImportRuns(1);
+      const age = lastRun ? Date.now() - lastRun.startedAt.getTime() : Infinity;
+      if (age >= IMPORT_INTERVAL_MS) {
+        console.log("[BFV Scheduler] Letzter Import zu alt oder fehlt – Catch-up-Import in 30s.");
+        setTimeout(() => { void triggerBfvImportNow(); }, 30_000);
+      }
+    } catch (e) {
+      console.error("[BFV Scheduler] Catch-up-Prüfung fehlgeschlagen:", e);
+    }
+  })();
 }
 
 export function stopBfvScheduler(): void {
