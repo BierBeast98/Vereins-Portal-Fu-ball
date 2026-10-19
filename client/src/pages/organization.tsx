@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Check, ChevronDown, ChevronUp, GitBranch, GripHorizontal, KeyRound, LayoutGrid, LockKeyhole, LogOut, Pencil, Plus, Save, Trash2, Users, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, GitBranch, GripHorizontal, KeyRound, LayoutGrid, LockKeyhole, LogOut, Pencil, Plus, Save, Trash2, Users, ZoomIn, ZoomOut } from "lucide-react";
 import type { OrganizationChart, OrganizationNode } from "@shared/organization";
+import { collapseOrganizationAtLevel, organizationDepths, revealOrganizationRole, visibleOrganizationNodes } from "@shared/organization-visibility";
 import { canConnectRoles, connectRoles, removeRole } from "@shared/organization-editing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,6 +93,9 @@ export default function OrganizationPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmAction, setConfirmAction] = useState<"delete" | "reload" | "sample" | "arrange" | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [levelPreset, setLevelPreset] = useState("2");
+  const [fitRevision, setFitRevision] = useState(0);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [connection, setConnection] = useState<Connection | null>(null);
   const connectionRef = useRef<Connection | null>(null);
@@ -102,6 +106,47 @@ export default function OrganizationPage() {
   const forbiddenParents = detailsNode && chart ? descendants(detailsNode.id, chart.nodes) : new Set<string>();
   const canManageAccess = location === "/admin/organigramm" && (access?.canManage === true || access?.isAdmin === true);
   const roleToDelete = chart?.nodes.find((node) => node.id === deleteId);
+  const visibleNodes = useMemo(() => visibleOrganizationNodes(chart?.nodes ?? [], collapsedIds), [chart?.nodes, collapsedIds]);
+  const visibleIds = useMemo(() => new Set(visibleNodes.map(node => node.id)), [visibleNodes]);
+  const depths = useMemo(() => organizationDepths(chart?.nodes ?? []), [chart?.nodes]);
+  const maxDepth = Math.max(1, ...Array.from(depths.values()));
+  const childCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    chart?.nodes.forEach(node => { if (node.parentId) counts.set(node.parentId, (counts.get(node.parentId) ?? 0) + 1); });
+    return counts;
+  }, [chart?.nodes]);
+
+  function fitVisible() {
+    if (!visibleNodes.length) return;
+    const left = Math.max(0, Math.min(...visibleNodes.map(node => node.x)) - 40);
+    const top = Math.max(0, Math.min(...visibleNodes.map(node => node.y)) - 30);
+    const right = Math.max(...visibleNodes.map(node => node.x + 290));
+    const bottom = Math.max(...visibleNodes.map(node => node.y + 230));
+    const nextZoom = Math.max(0.25, Math.min(1, (canvas.current?.clientWidth || 1000) / (right - left), (canvas.current?.clientHeight || 640) / (bottom - top)));
+    setZoom(nextZoom);
+    window.requestAnimationFrame(() => canvas.current?.scrollTo({ left: left * nextZoom, top: top * nextZoom }));
+  }
+  useEffect(() => {
+    if (access?.authenticated && chart) fitVisible();
+  }, [fitRevision, access?.authenticated, Boolean(chart)]);
+  useEffect(() => {
+    if (selectedId && !visibleIds.has(selectedId)) setSelectedId(null);
+    if (detailsId && !visibleIds.has(detailsId)) setDetailsId(null);
+  }, [visibleIds, selectedId, detailsId]);
+
+  function chooseLevel(value: string) {
+    if (!chart) return;
+    cancelConnection(); drag.current = null;
+    setLevelPreset(value);
+    setCollapsedIds(value === "all" ? new Set() : collapseOrganizationAtLevel(chart.nodes, Number(value)));
+    setFitRevision(revision => revision + 1);
+  }
+  function toggleBranch(id: string) {
+    cancelConnection(); drag.current = null;
+    setLevelPreset("custom");
+    setCollapsedIds(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+    setFitRevision(revision => revision + 1);
+  }
 
   function cancelConnection() { connectionRef.current = null; setConnection(null); }
   useEffect(() => {
@@ -176,6 +221,7 @@ export default function OrganizationPage() {
 
   async function loadChart() {
     const data = await request<OrganizationChart>("/api/organization/chart");
+    setCollapsedIds(collapseOrganizationAtLevel(data.nodes, 2)); setLevelPreset("2"); setFitRevision(revision => revision + 1);
     setChart(data); setBaseline(serialized(data)); setSelectedId(null); setDetailsId(null); setFieldResetKey((key) => key + 1);
   }
   useEffect(() => {
@@ -216,7 +262,9 @@ export default function OrganizationPage() {
     const id = crypto.randomUUID();
     const position = point ?? openPosition(chart.nodes, parent?.x ?? ((canvas.current?.scrollLeft ?? 0) / zoom + 40), parent ? parent.y + 235 : (canvas.current?.scrollTop ?? 0) / zoom + 40);
     const node: OrganizationNode = { id, title: "Neue Rolle", people: [], description: "", color: parent?.color || "green", parentId, ...position };
-    setChart({ ...chart, nodes: [...chart.nodes, node] }); editRole(id); setNotice("");
+    const nodes = [...chart.nodes, node];
+    setCollapsedIds(current => revealOrganizationRole(nodes, current, id)); setLevelPreset("custom");
+    setChart({ ...chart, nodes }); editRole(id); setNotice("");
   }
   async function perform(action: () => Promise<void>) {
     setBusy(true); setError(""); setNotice("");
@@ -261,14 +309,15 @@ export default function OrganizationPage() {
         { id: root, title: "Gemeinsame Vereinsleitung", people: ["Person A (Beispiel)", "Person B (Beispiel)", "Person C (Beispiel)"], description: "Fiktives Beispiel – durch eure Vereinsstruktur ersetzen.", color: "green", parentId: null, x: 0, y: 0 },
         ...["Fußball", "Finanzen", "Vereinsleben"].map((title, index): OrganizationNode => ({ id: crypto.randomUUID(), title, people: [], description: "", color: (["blue", "orange", "purple"] as const)[index], parentId: root, x: 0, y: 0 })),
       ];
+      setCollapsedIds(new Set()); setLevelPreset("all"); setFitRevision(revision => revision + 1);
       setChart({ ...chart, nodes: arrange(sample) }); setSelectedId(root); setDetailsId(null);
     }
     if (confirmAction === "reload") void perform(async () => { await loadChart(); setNotice("Aktueller Stand geladen."); });
     setNotice(""); setConfirmAction(null);
   }
 
-  const width = Math.max(1000, ...(chart?.nodes.map((node) => node.x + 320) || []));
-  const height = Math.max(580, ...(chart?.nodes.map((node) => node.y + 240) || []));
+  const width = Math.max(1000, ...visibleNodes.map(node => node.x + 320));
+  const height = Math.max(580, ...visibleNodes.map(node => node.y + 240));
 
   return (
     <div className="min-h-screen bg-background">
@@ -311,7 +360,18 @@ export default function OrganizationPage() {
             <section className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm" aria-label="Organigramm-Arbeitsfläche">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
                 <div className="flex flex-wrap gap-2"><Button size="sm" draggable={!busy && chart.nodes.length < 200} onDragStart={(event) => { event.dataTransfer.setData("application/x-tsv-role", "new"); event.dataTransfer.effectAllowed = "copy"; }} disabled={busy || chart.nodes.length >= 200} onClick={() => addNode()} title="Anklicken oder auf die Arbeitsfläche ziehen"><Plus className="mr-2 h-4 w-4" />Neue Rolle</Button><Button size="sm" variant="outline" disabled={busy || !chart.nodes.length} onClick={() => setConfirmAction("arrange")}><LayoutGrid className="mr-2 h-4 w-4" />Anordnen</Button></div>
-                <div className="flex items-center gap-1"><Button size="icon" variant="ghost" aria-label="Verkleinern" onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.1).toFixed(2)))}><ZoomOut className="h-4 w-4" /></Button><span className="min-w-10 text-center text-xs">{Math.round(zoom * 100)} %</span><Button size="icon" variant="ghost" aria-label="Vergrößern" onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}><ZoomIn className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => { setZoom(Math.max(0.25, Math.min(1, (canvas.current?.clientWidth || 1000) / width))); canvas.current?.scrollTo({ left: 0, top: 0 }); }}>Einpassen</Button></div>
+                <div className="flex items-center gap-1"><Button size="icon" variant="ghost" aria-label="Verkleinern" onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.1).toFixed(2)))}><ZoomOut className="h-4 w-4" /></Button><span className="min-w-10 text-center text-xs">{Math.round(zoom * 100)} %</span><Button size="icon" variant="ghost" aria-label="Vergrößern" onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}><ZoomIn className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={fitVisible}>Einpassen</Button></div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+                <Label htmlFor="org-visible-levels">Ebenen anzeigen</Label>
+                <select id="org-visible-levels" className={`${nativeSelect.replace("w-full", "w-auto")} max-w-full`} value={levelPreset} disabled={busy} onChange={event => chooseLevel(event.target.value)}>
+                  {levelPreset === "custom" && <option value="custom">Individuell aufgeklappt</option>}
+                  {Array.from({ length: Math.max(2, maxDepth) }, (_, index) => <option key={index + 1} value={String(index + 1)}>{index === 0 ? "Nur oberste Ebene" : `Bis Ebene ${index + 1}`}</option>)}
+                  <option value="all">Alle Ebenen</option>
+                </select>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => chooseLevel("all")}>Alles ausklappen</Button>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => chooseLevel("1")}>Alles einklappen</Button>
+                <p className="text-xs text-muted-foreground">Über den Pfeil an einer Rolle ihre Unterrollen einzeln ein- oder ausklappen.</p>
               </div>
               <p className="border-b px-4 py-2 text-xs text-muted-foreground">Oben die Person, darunter Funktion und Aufgaben – direkt in der Kachel bearbeiten. Am Griff verschieben, über die Anschlüsse verbinden. Weitere Einstellungen findest du unter „Details“.</p>
               {connection && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b bg-primary/5 px-4 py-2 text-sm"><span>Auf die Zielrolle ziehen oder ihren oberen Anschluss anklicken. Escape bricht ab.</span><Button size="sm" variant="ghost" onClick={cancelConnection}>Verbindung abbrechen</Button></div>}
@@ -321,14 +381,16 @@ export default function OrganizationPage() {
                 onDrop={(event) => { if (event.dataTransfer.getData("application/x-tsv-role") !== "new") return; event.preventDefault(); const point = canvasPoint(event.clientX, event.clientY); addNode(null, { x: clamp(point.x - 125), y: clamp(point.y - 40) }); }}
                 className="relative h-[520px] overflow-auto bg-slate-50 md:h-[640px]" style={{ backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)", backgroundSize: "20px 20px" }}>
                 {!chart.nodes.length ? <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center"><Users className="h-12 w-12 text-primary/50" /><h2 className="text-lg font-semibold">Platz für eure Vereinsstruktur</h2><p className="max-w-sm text-sm text-muted-foreground">Beginne mit einer Leitung oder mehreren gleichberechtigten Spitzen. Ergänze danach Bereiche, Rollen und Personen.</p><Button disabled={busy} onClick={() => addNode()}><Plus className="mr-2 h-4 w-4" />Erste Rolle anlegen</Button><Button variant="ghost" disabled={busy} onClick={() => setConfirmAction("sample")}>Fiktives Beispiel laden</Button></div> : <div style={{ width: width * zoom, height: height * zoom }}><div className="relative origin-top-left" style={{ width, height, transform: `scale(${zoom})` }}>
-                  <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden="true">{chart.nodes.map((node) => { const parent = chart.nodes.find((item) => item.id === node.parentId); if (!parent) return null; const x1 = parent.x + 125, y1 = parent.y + 200, x2 = node.x + 125, y2 = node.y; const mid = (y1 + y2) / 2; return <path key={node.id} d={`M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`} stroke="#94a3b8" strokeWidth="2" fill="none" />; })}</svg>
+                  <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden="true">{visibleNodes.map((node) => { const parent = visibleNodes.find((item) => item.id === node.parentId); if (!parent) return null; const x1 = parent.x + 125, y1 = parent.y + 200, x2 = node.x + 125, y2 = node.y; const mid = (y1 + y2) / 2; return <path key={node.id} d={`M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`} stroke="#94a3b8" strokeWidth="2" fill="none" />; })}</svg>
                   {connection && (() => {
                     const source = chart.nodes.find((node) => node.id === connection.sourceId);
                     if (!source) return null;
                     const x = source.x + 125, y = source.y + 200;
                     return <svg className="pointer-events-none absolute inset-0 text-primary" width={width} height={height} aria-hidden="true"><path d={`M ${x} ${y} C ${x} ${(y + connection.y) / 2}, ${connection.x} ${(y + connection.y) / 2}, ${connection.x} ${connection.y}`} stroke="currentColor" strokeWidth="3" strokeDasharray="7 5" fill="none" /></svg>;
                   })()}
-                  {chart.nodes.map((node) => {
+                  {visibleNodes.map((node) => {
+                    const childCount = childCounts.get(node.id) ?? 0;
+                    const collapsed = collapsedIds.has(node.id);
                     const validTarget = connection && canConnectRoles(chart.nodes, connection.sourceId, node.id);
                     return <ContextMenu key={node.id} onOpenChange={(open) => { if (open) { setSelectedId(node.id); cancelConnection(); } }}>
                       <ContextMenuTrigger asChild>
@@ -343,6 +405,9 @@ export default function OrganizationPage() {
                             <button type="button" aria-label={`${node.title} verschieben`} title="Kachel verschieben" disabled={busy}
                               className="flex h-full flex-1 touch-none cursor-grab items-center justify-center active:cursor-grabbing"
                               onPointerDown={(event) => beginDrag(event, node)} onPointerMove={moveDrag} onPointerUp={stopDrag} onPointerCancel={stopDrag} onLostPointerCapture={stopDrag}><GripHorizontal className="h-4 w-4" /></button>
+                            {childCount > 0 && <button type="button" disabled={busy} aria-expanded={!collapsed} aria-label={`Unterrollen von ${node.title} ${collapsed ? "ausklappen" : "einklappen"}`} title={`${childCount} direkte Unterrollen ${collapsed ? "anzeigen" : "ausblenden"}`} className="flex items-center gap-0.5 rounded px-1 py-1 hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" onClick={() => toggleBranch(node.id)}>
+                              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}<span className="text-xs">{childCount}</span>
+                            </button>}
                             <button type="button" aria-label={`${node.title} löschen`} title="Löschen" disabled={busy} className="rounded p-1 text-red-700 hover:bg-red-100" onClick={() => confirmDelete(node.id)}><Trash2 className="h-4 w-4" /></button>
                           </div>
                           <div className="flex min-h-0 flex-1 flex-col gap-1 px-2 pb-2 pt-1">
@@ -371,6 +436,7 @@ export default function OrganizationPage() {
                         <ContextMenuItem disabled={busy} onSelect={() => openDetails(node.id)}><ChevronDown className="mr-2 h-4 w-4" />Details & Aufgaben</ContextMenuItem>
                         <ContextMenuItem disabled={busy || chart.nodes.length >= 200} onSelect={() => addNode(node.id)}><Plus className="mr-2 h-4 w-4" />Unterrolle hinzufügen</ContextMenuItem>
                         <ContextMenuItem disabled={busy || !node.parentId} onSelect={() => { setChart((current) => current && ({ ...current, nodes: current.nodes.map((item) => item.id === node.id ? { ...item, parentId: null } : item) })); setNotice("Verbindung gelöst. Mit Speichern übernehmen."); }}>Verbindung zur übergeordneten Rolle lösen</ContextMenuItem>
+                        {childCount > 0 && <ContextMenuItem disabled={busy} onSelect={() => toggleBranch(node.id)}>{collapsed ? <ChevronRight className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}{collapsed ? "Unterrollen ausklappen" : "Unterrollen einklappen"}</ContextMenuItem>}
                         <ContextMenuSeparator />
                         <ContextMenuItem disabled={busy} className="text-destructive focus:text-destructive" onSelect={() => confirmDelete(node.id)}><Trash2 className="mr-2 h-4 w-4" />Löschen</ContextMenuItem>
                       </ContextMenuContent>
@@ -378,7 +444,7 @@ export default function OrganizationPage() {
                   })}
                 </div></div>}
               </div>
-              <div className="flex flex-wrap justify-between gap-2 border-t px-4 py-2 text-xs text-muted-foreground"><span>{chart.nodes.length} / 200 Rollen · {chart.nodes.filter((node) => !node.parentId).length} oberste Rollen</span><span>Positionen und Inhalte werden erst mit „Speichern“ übernommen.</span></div>
+              <div className="flex flex-wrap justify-between gap-2 border-t px-4 py-2 text-xs text-muted-foreground"><span aria-live="polite">{visibleNodes.length} von {chart.nodes.length} Rollen sichtbar · {chart.nodes.length} / 200 Rollen · {chart.nodes.filter((node) => !node.parentId).length} oberste Rollen</span><span>Ein-/Ausklappen ändert nur deine Ansicht. Positionen und Inhalte mit „Speichern“ übernehmen.</span></div>
             </section>
 
             {detailsNode && <section id="organization-details" className="rounded-xl border bg-card p-4 shadow-sm md:p-6" aria-label="Erweiterte Rollendetails">
