@@ -1,6 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { dbStorage } from "./dbStorage";
+import { dbStorage, migrateStoredPasswords } from "./dbStorage";
+import { createAdminAuth } from "./admin-auth";
+import { enforceApiPermissions } from "./api-permissions";
+import { verifyPassword } from "./passwords";
 import rateLimit from "express-rate-limit";
 import { parseStartEndInBerlin } from "./dateTimeBerlin";
 import {
@@ -36,13 +39,8 @@ function addHours(time: string, hours: number): string {
   return `${newHour.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 }
 
-// Middleware to protect admin routes
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.session.isAdmin) {
-    return res.status(401).json({ error: "Nicht autorisiert" });
-  }
-  next();
-}
+const adminAuth = createAdminAuth(dbStorage);
+const { requireAdmin } = adminAuth;
 
 // ============================================
 // RATE LIMITING
@@ -83,62 +81,11 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Allgemeines Rate Limiting für alle API-Endpunkte
   app.use("/api/", apiLimiter);
+  await migrateStoredPasswords();
+  app.use("/api/", adminAuth.validateAdminSession);
+  app.use("/api/", enforceApiPermissions);
+  await adminAuth.register(app, loginLimiter);
   await registerOrganizationRoutes(app);
-
-  // Auth endpoints
-  app.post("/api/auth/login", loginLimiter, async (req, res) => {
-    try {
-      const { password } = req.body;
-      if (!password || typeof password !== "string") {
-        return res.status(400).json({ error: "Passwort erforderlich" });
-      }
-      const adminPassword = await dbStorage.getAdminPassword();
-
-      if (password === adminPassword) {
-        req.session.isAdmin = true;
-        res.json({ success: true });
-      } else {
-        // Absichtliche kleine Verzögerung bei falschem Passwort (Timing-Angriff)
-        await new Promise((r) => setTimeout(r, 300));
-        res.status(401).json({ error: "Falsches Passwort" });
-      }
-    } catch (error) {
-      res.status(500).json({ error: "Login fehlgeschlagen" });
-    }
-  });
-
-  app.post("/api/auth/logout", (req, res) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ error: "Logout fehlgeschlagen" });
-      }
-      res.json({ success: true });
-    });
-  });
-
-  app.get("/api/auth/check", (req, res) => {
-    res.json({ isAdmin: !!req.session.isAdmin });
-  });
-
-  app.post("/api/auth/change-password", requireAdmin, async (req, res) => {
-    try {
-      const { currentPassword, newPassword } = req.body;
-      const adminPassword = await dbStorage.getAdminPassword();
-
-      if (currentPassword !== adminPassword) {
-        return res.status(401).json({ error: "Aktuelles Passwort ist falsch" });
-      }
-
-      if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
-        return res.status(400).json({ error: "Neues Passwort muss mindestens 8 Zeichen haben" });
-      }
-
-      await dbStorage.setAdminPassword(newPassword);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: "Passwortänderung fehlgeschlagen" });
-    }
-  });
 
   // Products CRUD (protected)
   app.get("/api/products", async (req, res) => {
@@ -321,7 +268,7 @@ export async function registerRoutes(
       if (stored === null) {
         return res.status(400).json({ error: "Diese Kampagne ist nicht passwortgeschützt" });
       }
-      if (password === stored) {
+      if (await verifyPassword(password, stored)) {
         return res.json({ success: true });
       }
       // Kleine Verzögerung bei falschem Passwort (Timing-Angriff)
@@ -393,14 +340,14 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/orders", async (req, res) => {
+  app.post("/api/orders", campaignPasswordLimiter, async (req, res) => {
     try {
       const data = insertOrderSchema.parse(req.body);
 
       // Passwortschutz: Wenn die Kampagne ein Passwort hat, muss es bei der Bestellung mitkommen und stimmen
       const campaignPassword = await dbStorage.getCampaignPassword(data.campaignId);
       if (campaignPassword !== null) {
-        if (!data.campaignPassword || data.campaignPassword !== campaignPassword) {
+        if (!data.campaignPassword || !await verifyPassword(data.campaignPassword, campaignPassword)) {
           return res.status(401).json({ error: "Bestellungs-Passwort fehlt oder ist falsch" });
         }
       }
@@ -1101,7 +1048,7 @@ export async function registerRoutes(
   });
 
   // ---- Public: Passwort prüfen (Rate-Limit) ----
-  app.post("/api/festivals/verify-password", loginLimiter, async (req, res) => {
+  app.post("/api/festivals/verify-password", campaignPasswordLimiter, async (req, res) => {
     try {
       const data = verifyFestivalPasswordSchema.parse(req.body);
       const stored = await dbStorage.getFestivalPassword(data.festivalId);
@@ -1109,7 +1056,7 @@ export async function registerRoutes(
         // Kein Passwort gesetzt → immer als korrekt durchwinken
         return res.json({ success: true });
       }
-      if (stored === data.password) {
+      if (await verifyPassword(data.password, stored)) {
         return res.json({ success: true });
       }
       await new Promise((r) => setTimeout(r, 300));
@@ -1124,7 +1071,7 @@ export async function registerRoutes(
   });
 
   // ---- Public: neue Helfer-Eintragung ----
-  app.post("/api/festivals/:id/signups", async (req, res) => {
+  app.post("/api/festivals/:id/signups", campaignPasswordLimiter, async (req, res) => {
     try {
       const festivalId = req.params.id as string;
       const data = insertFestivalSignupSchema.parse(req.body);
@@ -1134,7 +1081,7 @@ export async function registerRoutes(
       }
       // Passwort-Check als 2. Verteidigungslinie (Frontend-Gate ist nicht genug)
       const storedPassword = await dbStorage.getFestivalPassword(festivalId);
-      if (storedPassword && storedPassword !== data.festivalPassword) {
+      if (storedPassword && !await verifyPassword(data.festivalPassword ?? "", storedPassword)) {
         return res.status(401).json({ error: "Passwort erforderlich" });
       }
       // Shift validieren: existiert, gehört zum Fest, ist nicht voll
