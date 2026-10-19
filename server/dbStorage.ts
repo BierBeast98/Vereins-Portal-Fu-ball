@@ -50,6 +50,7 @@ import {
   type BulkCreateShifts,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { hashPassword, isPasswordHash } from "./passwords";
 
 export interface IDbStorage {
   getAllCalendarEvents(): Promise<CalendarEvent[]>;
@@ -79,8 +80,9 @@ export interface IDbStorage {
   updateFieldMapping(id: string, mapping: Partial<InsertFieldMapping>): Promise<FieldMapping | undefined>;
   deleteFieldMapping(id: string): Promise<boolean>;
   getDefaultField(team: Team, eventType: EventType): Promise<Field | undefined>;
-  getAdminPassword(): Promise<string>;
+  getAdminPassword(): Promise<string | null>;
   setAdminPassword(password: string): Promise<void>;
+  changeAdminPassword(expectedHash: string, newPassword: string): Promise<string | null>;
   initializeDefaultFieldMappings(): Promise<void>;
   // Event requests (training proposals)
   createEventRequest(data: InsertEventRequest): Promise<EventRequest>;
@@ -557,22 +559,31 @@ export class DbStorage implements IDbStorage {
     return mapping ? (mapping.defaultField as Field) : undefined;
   }
 
-  async getAdminPassword(): Promise<string> {
+  async getAdminPassword(): Promise<string | null> {
     const [setting] = await db
       .select()
       .from(adminSettingsTable)
       .where(eq(adminSettingsTable.key, "admin_password"));
-    return setting?.value || "12345";
+    return setting?.value || null;
   }
 
   async setAdminPassword(password: string): Promise<void> {
+    const encoded = await hashPassword(password);
     await db
       .insert(adminSettingsTable)
-      .values({ key: "admin_password", value: password })
+      .values({ key: "admin_password", value: encoded })
       .onConflictDoUpdate({
         target: adminSettingsTable.key,
-        set: { value: password },
+        set: { value: encoded },
       });
+  }
+
+  async changeAdminPassword(expectedHash: string, newPassword: string): Promise<string | null> {
+    const encoded = await hashPassword(newPassword);
+    const [updated] = await db.update(adminSettingsTable).set({ value: encoded }).where(and(
+      eq(adminSettingsTable.key, "admin_password"), eq(adminSettingsTable.value, expectedHash),
+    )).returning({ value: adminSettingsTable.value });
+    return updated?.value ?? null;
   }
 
   async initializeDefaultFieldMappings(): Promise<void> {
@@ -779,7 +790,7 @@ export class DbStorage implements IDbStorage {
       endDate: data.endDate,
       active: data.active ?? true,
       productIds: data.productIds ?? [],
-      password: data.password ?? null,
+      password: data.password ? await hashPassword(data.password) : null,
     }).returning();
     return dbCampaignToCampaign(row);
   }
@@ -792,7 +803,7 @@ export class DbStorage implements IDbStorage {
     if (data.endDate !== undefined) updateData.endDate = data.endDate;
     if (data.active !== undefined) updateData.active = data.active;
     if (data.productIds !== undefined) updateData.productIds = data.productIds;
-    if (data.password !== undefined) updateData.password = data.password;
+    if (data.password !== undefined) updateData.password = data.password ? await hashPassword(data.password) : null;
     const [row] = await db.update(campaignsTable).set(updateData as any).where(eq(campaignsTable.id, id)).returning();
     return row ? dbCampaignToCampaign(row) : undefined;
   }
@@ -804,7 +815,7 @@ export class DbStorage implements IDbStorage {
 
   async getCampaignPassword(id: string): Promise<string | null> {
     const [row] = await db.select({ password: campaignsTable.password }).from(campaignsTable).where(eq(campaignsTable.id, id));
-    return row?.password ?? null;
+    return row?.password || null;
   }
 
   // ============ ORDERS ============
@@ -873,7 +884,7 @@ export class DbStorage implements IDbStorage {
       .select({ password: festivalsTable.password })
       .from(festivalsTable)
       .where(eq(festivalsTable.id, id));
-    return row?.password ?? null;
+    return row?.password || null;
   }
 
   async createFestival(data: InsertFestival): Promise<Festival> {
@@ -888,7 +899,7 @@ export class DbStorage implements IDbStorage {
         startDate: data.startDate,
         endDate: data.endDate,
         active: data.active ?? true,
-        password: data.password ?? null,
+        password: data.password ? await hashPassword(data.password) : null,
       })
       .returning();
     return dbFestivalToFestival(row);
@@ -903,7 +914,7 @@ export class DbStorage implements IDbStorage {
     if (data.endDate !== undefined) updateData.endDate = data.endDate;
     if (data.active !== undefined) updateData.active = data.active;
     if (data.password !== undefined) {
-      updateData.password = data.password === "" ? null : data.password;
+      updateData.password = data.password ? await hashPassword(data.password) : null;
     }
     const [row] = await db
       .update(festivalsTable)
@@ -1228,3 +1239,42 @@ function dbSignupToSignup(row: typeof festivalSignupsTable.$inferSelect): Festiv
 }
 
 export const dbStorage = new DbStorage();
+
+/** Upgrade existing values before registering authentication routes. No new defaults. */
+export async function migrateStoredPasswords(): Promise<void> {
+  const [admin] = await db.select().from(adminSettingsTable).where(eq(adminSettingsTable.key, "admin_password"));
+  if (admin?.value && !isPasswordHash(admin.value)) {
+    const encoded = await hashPassword(admin.value);
+    await db.update(adminSettingsTable).set({ value: encoded }).where(and(
+      eq(adminSettingsTable.key, "admin_password"), eq(adminSettingsTable.value, admin.value),
+    ));
+  }
+  const campaigns = await db.select({ id: campaignsTable.id, password: campaignsTable.password }).from(campaignsTable);
+  for (const campaign of campaigns) {
+    if (campaign.password === "") {
+      await db.update(campaignsTable).set({ password: null }).where(and(
+        eq(campaignsTable.id, campaign.id), eq(campaignsTable.password, ""),
+      ));
+      continue;
+    }
+    if (!campaign.password || isPasswordHash(campaign.password)) continue;
+    const encoded = await hashPassword(campaign.password);
+    await db.update(campaignsTable).set({ password: encoded }).where(and(
+      eq(campaignsTable.id, campaign.id), eq(campaignsTable.password, campaign.password),
+    ));
+  }
+  const festivals = await db.select({ id: festivalsTable.id, password: festivalsTable.password }).from(festivalsTable);
+  for (const festival of festivals) {
+    if (festival.password === "") {
+      await db.update(festivalsTable).set({ password: null }).where(and(
+        eq(festivalsTable.id, festival.id), eq(festivalsTable.password, ""),
+      ));
+      continue;
+    }
+    if (!festival.password || isPasswordHash(festival.password)) continue;
+    const encoded = await hashPassword(festival.password);
+    await db.update(festivalsTable).set({ password: encoded }).where(and(
+      eq(festivalsTable.id, festival.id), eq(festivalsTable.password, festival.password),
+    ));
+  }
+}

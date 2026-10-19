@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { ArrowLeft, Check, ChevronDown, ChevronUp, GitBranch, GripHorizontal, KeyRound, LayoutGrid, LockKeyhole, LogOut, Pencil, Plus, Save, Trash2, Users, ZoomIn, ZoomOut } from "lucide-react";
 import type { OrganizationChart, OrganizationNode } from "@shared/organization";
 import { canConnectRoles, connectRoles, removeRole } from "@shared/organization-editing";
@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 
-type Access = { authenticated: boolean; configured: boolean; isAdmin: boolean };
+type Access = { authenticated: boolean; configured: boolean; isAdmin: boolean; canManage?: boolean };
 type Connection = { sourceId: string; x: number; y: number; targetId: string | null; pointerId: number; dragging: boolean };
 const colors = {
   green: { label: "Vereinsgrün", card: "border-green-300 bg-green-50", dot: "bg-green-600" },
@@ -77,6 +77,7 @@ function openPosition(nodes: OrganizationNode[], preferredX: number, preferredY:
 }
 
 export default function OrganizationPage() {
+  const [location] = useLocation();
   const [access, setAccess] = useState<Access | null>(null);
   const [chart, setChart] = useState<OrganizationChart | null>(null);
   const [baseline, setBaseline] = useState("");
@@ -99,6 +100,7 @@ export default function OrganizationPage() {
   const dirty = Boolean(chart && serialized(chart) !== baseline);
   const detailsNode = chart?.nodes.find((node) => node.id === detailsId);
   const forbiddenParents = detailsNode && chart ? descendants(detailsNode.id, chart.nodes) : new Set<string>();
+  const canManageAccess = location === "/admin/organigramm" && (access?.canManage === true || access?.isAdmin === true);
   const roleToDelete = chart?.nodes.find((node) => node.id === deleteId);
 
   function cancelConnection() { connectionRef.current = null; setConnection(null); }
@@ -275,8 +277,8 @@ export default function OrganizationPage() {
           <div className="flex items-center gap-3"><div className="rounded-xl bg-primary/10 p-3 text-primary"><GitBranch className="h-6 w-6" /></div><div><p className="text-xs font-medium uppercase tracking-wider text-primary">TSV Greding · Vereinsorganisation</p><h1 className="text-xl font-semibold md:text-2xl">Unser Organigramm</h1></div></div>
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" asChild><Link href="/"><ArrowLeft className="mr-2 h-4 w-4" />Zum Portal</Link></Button>
-            {access?.isAdmin && <Button variant="outline" onClick={() => setPasswordOpen(true)}><KeyRound className="mr-2 h-4 w-4" />Zugang verwalten</Button>}
-            {access?.authenticated && !access.isAdmin && <Button variant="outline" disabled={busy} onClick={() => { if (dirty && !window.confirm("Ungespeicherte Änderungen verwerfen und abmelden?")) return; void perform(async () => { await request("/api/organization/logout", "POST"); setChart(null); setBaseline(""); setAccess(await request<Access>("/api/organization/access")); }); }}><LogOut className="mr-2 h-4 w-4" />Abmelden</Button>}
+            {canManageAccess && <Button variant="outline" onClick={() => setPasswordOpen(true)}><KeyRound className="mr-2 h-4 w-4" />Zugang verwalten</Button>}
+            {access?.authenticated && !access.isAdmin && !access.canManage && <Button variant="outline" disabled={busy} onClick={() => { if (dirty && !window.confirm("Ungespeicherte Änderungen verwerfen und abmelden?")) return; void perform(async () => { await request("/api/organization/logout", "POST"); setChart(null); setBaseline(""); setAccess(await request<Access>("/api/organization/access")); }); }}><LogOut className="mr-2 h-4 w-4" />Abmelden</Button>}
           </div>
         </div>
       </header>
@@ -284,7 +286,7 @@ export default function OrganizationPage() {
       <main className="mx-auto max-w-[1800px] space-y-4 p-4 md:p-8">
         {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}{access?.authenticated && chart && <Button variant="outline" size="sm" className="ml-3" onClick={() => setConfirmAction("reload")}>Aktuellen Stand neu laden</Button>}</div>}
         {notice && <div role="status" className="flex items-center gap-2 rounded-lg border bg-primary/5 p-3 text-sm text-primary"><Check className="h-4 w-4" />{notice}</div>}
-        {access?.isAdmin && !access.configured && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-primary/5 p-4"><p className="text-sm">Lege ein eigenes Organigramm-Passwort fest, damit andere die Vereinsstruktur mitbearbeiten können.</p><Button onClick={() => setPasswordOpen(true)}>Passwort festlegen</Button></div>}
+        {canManageAccess && !access?.configured && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-primary/5 p-4"><p className="text-sm">Lege ein eigenes Organigramm-Passwort fest, damit andere die Vereinsstruktur mitbearbeiten können.</p><Button onClick={() => setPasswordOpen(true)}>Passwort festlegen</Button></div>}
         {!access && <div className="py-20 text-center text-muted-foreground">{error ? <Button variant="outline" onClick={() => void perform(async () => setAccess(await request<Access>("/api/organization/access")))}>Erneut versuchen</Button> : "Zugang wird geprüft …"}</div>}
 
         {access && !access.authenticated && <section className="mx-auto my-12 max-w-md rounded-xl border bg-card p-6 shadow-sm">
@@ -397,7 +399,7 @@ export default function OrganizationPage() {
         </>}
       </main>
 
-      <Dialog open={passwordOpen} onOpenChange={(open) => { if (!busy) { setPasswordOpen(open); setNewPassword(""); } }}><DialogContent><DialogHeader><DialogTitle>Organigramm-Zugang verwalten</DialogTitle><DialogDescription>Ein separates gemeinsames Passwort gibt Zugriff auf das Organigramm. Es gewährt keinen Zugang zu anderen Adminfunktionen. Teile es nur mit Personen, die alles im Organigramm bearbeiten dürfen.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void perform(async () => { await request("/api/admin/organization/password", "PUT", { password: newPassword }); setPasswordOpen(false); setNewPassword(""); setAccess(await request<Access>("/api/organization/access")); setNotice("Organigramm-Passwort gespeichert."); }); }}><div className="space-y-2"><Label htmlFor="org-new-password">Neues gemeinsames Passwort</Label><Input id="org-new-password" autoComplete="new-password" type="password" minLength={8} maxLength={200} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /><p className="text-xs text-muted-foreground">Mindestens 8 Zeichen.</p></div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button type="submit" disabled={busy || newPassword.length < 8}>Passwort speichern</Button></DialogFooter></form></DialogContent></Dialog>
+      <Dialog open={canManageAccess && passwordOpen} onOpenChange={(open) => { if (!busy) { setPasswordOpen(open); setNewPassword(""); } }}><DialogContent><DialogHeader><DialogTitle>Organigramm-Zugang verwalten</DialogTitle><DialogDescription>Ein separates gemeinsames Passwort gibt Zugriff auf das Organigramm. Es gewährt keinen Zugang zu anderen Adminfunktionen. Teile es nur mit Personen, die alles im Organigramm bearbeiten dürfen.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void perform(async () => { await request("/api/admin/organization/password", "PUT", { password: newPassword }); setPasswordOpen(false); setNewPassword(""); setAccess(await request<Access>("/api/organization/access")); setNotice("Organigramm-Passwort gespeichert."); }); }}><div className="space-y-2"><Label htmlFor="org-new-password">Neues gemeinsames Passwort</Label><Input id="org-new-password" autoComplete="new-password" type="password" minLength={8} maxLength={200} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /><p className="text-xs text-muted-foreground">Mindestens 8 Zeichen.</p></div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button type="submit" disabled={busy || newPassword.length < 8}>Passwort speichern</Button></DialogFooter></form></DialogContent></Dialog>
       <Dialog open={confirmAction !== null} onOpenChange={(open) => { if (!open) setConfirmAction(null); }}><DialogContent><DialogHeader><DialogTitle>{confirmAction === "delete" ? `„${roleToDelete?.title || "Rolle"}“ entfernen?` : confirmAction === "reload" ? "Aktuellen Stand neu laden?" : confirmAction === "arrange" ? "Automatisch anordnen?" : "Fiktives Beispiel laden?"}</DialogTitle><DialogDescription>{confirmAction === "delete" ? "Die Personen und Angaben dieser Rolle werden entfernt. Ihre Unterrollen bleiben erhalten und rücken an die übergeordnete Rolle, bei einer obersten Rolle an die Spitze." : confirmAction === "reload" ? "Deine ungespeicherten Änderungen werden verworfen und durch den zuletzt gespeicherten Stand ersetzt." : confirmAction === "arrange" ? "Die Rollen werden als Pyramide von oben nach unten angeordnet. Mehrere Spitzen bleiben gleichberechtigt. Deine individuellen Kartenpositionen werden ersetzt." : "Die aktuelle Struktur wird durch vier fiktive Beispielrollen mit einer dreiköpfigen Leitung ersetzt. Das Beispiel wird erst mit Speichern dauerhaft übernommen."}</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmAction(null)}>Abbrechen</Button><Button variant={confirmAction === "delete" || confirmAction === "reload" ? "destructive" : "default"} onClick={runConfirmedAction}> {confirmAction === "delete" ? "Rolle entfernen" : confirmAction === "reload" ? "Neu laden und verwerfen" : confirmAction === "arrange" ? "Jetzt anordnen" : "Beispiel übernehmen"}</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );

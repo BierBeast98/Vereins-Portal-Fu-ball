@@ -22,7 +22,7 @@ export default function AdminSettings() {
     onSuccess: () => {
       toast({
         title: "Erfolg",
-        description: "Passwort wurde erfolgreich geändert",
+        description: "Passwort geändert. Alle anderen Sitzungen deines Kontos wurden abgemeldet.",
       });
       setCurrentPassword("");
       setNewPassword("");
@@ -51,10 +51,10 @@ export default function AdminSettings() {
       return;
     }
 
-    if (newPassword.length < 1) {
+    if (newPassword.length < 12 || newPassword.length > 200) {
       toast({
         title: "Fehler",
-        description: "Bitte geben Sie ein neues Passwort ein",
+        description: "Das neue Passwort muss 12 bis 200 Zeichen lang sein",
         variant: "destructive",
       });
       return;
@@ -69,7 +69,7 @@ export default function AdminSettings() {
         <Settings className="h-8 w-8 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">Einstellungen</h1>
-          <p className="text-muted-foreground">Admin-Einstellungen verwalten</p>
+          <p className="text-muted-foreground">Dein persönliches Konto verwalten</p>
         </div>
       </div>
 
@@ -80,7 +80,7 @@ export default function AdminSettings() {
             <CardTitle>Passwort ändern</CardTitle>
           </div>
           <CardDescription>
-            Ändern Sie das Admin-Passwort für den Zugang zum Verwaltungsbereich
+            Verwenden Sie 12 bis 200 Zeichen. Du änderst dein persönliches Passwort. Nach dem Wechsel werden alle anderen Sitzungen deines Kontos abgemeldet.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -90,6 +90,9 @@ export default function AdminSettings() {
               <Input
                 id="currentPassword"
                 type="password"
+                autoComplete="current-password"
+                maxLength={200}
+                required
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Aktuelles Passwort eingeben"
@@ -101,6 +104,9 @@ export default function AdminSettings() {
               <Input
                 id="newPassword"
                 type="password"
+                minLength={12}
+                maxLength={200}
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Neues Passwort eingeben"
@@ -112,6 +118,9 @@ export default function AdminSettings() {
               <Input
                 id="confirmPassword"
                 type="password"
+                autoComplete="new-password"
+                maxLength={200}
+                required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Neues Passwort wiederholen"

@@ -4,7 +4,7 @@ import { join } from "path";
 config({ path: join(process.cwd(), ".env") });
 
 import express, { type Request, Response, NextFunction } from "express";
-import session from "express-session";
+import { createPortalSession, enforceSessionLifetime } from "./session-config";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -72,27 +72,16 @@ app.use(
 // SESSION
 // ============================================
 const sessionSecret = process.env.SESSION_SECRET;
-if (isProduction && !sessionSecret) {
-  console.error("FATAL: SESSION_SECRET muss in der Produktionsumgebung gesetzt sein!");
+if (isProduction && (!sessionSecret || sessionSecret.length < 32)) {
+  console.error("FATAL: SESSION_SECRET muss in Produktion mindestens 32 Zeichen enthalten!");
   process.exit(1);
 }
 
-app.use(
-  session({
-    secret: sessionSecret || "tsv-dev-secret-not-for-production",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      // Nur über HTTPS in Produktion – verhindert Cookie-Diebstahl über HTTP
-      secure: isProduction,
-      // JavaScript kann das Cookie nicht lesen – schützt vor XSS
-      httpOnly: true,
-      // Cookie gilt nur für gleiche Domain
-      sameSite: "strict",
-      maxAge: 24 * 60 * 60 * 1000, // 24 Stunden
-    },
-  })
-);
+app.use(createPortalSession({
+  isProduction,
+  secret: sessionSecret || "tsv-dev-secret-not-for-production",
+}));
+app.use(enforceSessionLifetime);
 
 app.use(
   express.json({
@@ -338,7 +327,7 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     // In Produktion keine internen Fehlermeldungen nach außen geben
     const message = isProduction

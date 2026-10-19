@@ -14,6 +14,7 @@ import {
   type InsertFieldMapping,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { hashPassword } from "./passwords";
 
 export interface IStorage {
   // Users
@@ -22,7 +23,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
 
   // Admin password
-  getAdminPassword(): Promise<string>;
+  getAdminPassword(): Promise<string | null>;
   setAdminPassword(password: string): Promise<void>;
 
   // Products
@@ -71,7 +72,7 @@ export class MemStorage implements IStorage {
   private orders: Map<string, Order>;
   private calendarEvents: Map<string, CalendarEvent>;
   private fieldMappings: Map<string, FieldMapping>;
-  private adminPassword: string;
+  private adminPassword: string | null;
 
   constructor() {
     this.users = new Map();
@@ -80,7 +81,7 @@ export class MemStorage implements IStorage {
     this.orders = new Map();
     this.calendarEvents = new Map();
     this.fieldMappings = new Map();
-    this.adminPassword = "12345"; // Default admin password
+    this.adminPassword = null; // No default credential, including the unused in-memory adapter.
 
     // Add sample products for demonstration
     this.initializeSampleData();
@@ -89,12 +90,12 @@ export class MemStorage implements IStorage {
   }
 
   // Admin password
-  async getAdminPassword(): Promise<string> {
+  async getAdminPassword(): Promise<string | null> {
     return this.adminPassword;
   }
 
   async setAdminPassword(password: string): Promise<void> {
-    this.adminPassword = password;
+    this.adminPassword = await hashPassword(password);
   }
 
   private initializeSampleData() {

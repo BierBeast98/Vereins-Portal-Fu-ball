@@ -1,6 +1,6 @@
-import { Switch, Route, useLocation, Redirect } from "wouter";
+import { Switch, Route, useLocation, Redirect, Link } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -22,9 +22,17 @@ import RequestsPage from "@/pages/admin/requests";
 import FestivalsPage from "@/pages/admin/festivals";
 import FestivalDetailPage from "@/pages/admin/festival-detail";
 import OrganizationPage from "@/pages/organization";
+import UsersPage from "@/pages/admin/users";
+import { firstAllowedPath, hasPermission, permissionForPath, usePortalAuth } from "@/lib/portal-auth";
+import { Button } from "@/components/ui/button";
+import type { Permission } from "@shared/permissions";
 import { Loader2 } from "lucide-react";
 
 function AdminLayout({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
+  const { data: auth } = usePortalAuth();
+  const permission = permissionForPath(location);
+  const readOnly = permission?.endsWith(".read") && !hasPermission(auth, permission.replace(/\.read$/, ".write") as Permission);
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
@@ -40,6 +48,7 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-auto p-6">
+            {readOnly && <p role="status" className="mb-4 rounded-lg border bg-muted/50 p-3 text-sm text-muted-foreground">Du kannst diesen Bereich ansehen. Für Änderungen fehlen dir die Bearbeitungsrechte.</p>}
             {children}
           </main>
         </div>
@@ -50,9 +59,7 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
 
 function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { data, isLoading } = useQuery<{ isAdmin: boolean }>({
-    queryKey: ["/api/auth/check"],
-  });
+  const { data, isLoading, error, refetch } = usePortalAuth();
 
   if (isLoading) {
     return (
@@ -62,9 +69,11 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!data?.isAdmin) {
-    return <Redirect to={location === "/admin/organigramm" ? "/admin/login?next=/admin/organigramm" : "/admin/login"} />;
-  }
+  if (error) return <div className="mx-auto max-w-lg space-y-4 p-8"><h1 className="text-xl font-semibold">Zugang konnte nicht geprüft werden</h1><p>Bitte versuche es erneut.</p><Button onClick={() => void refetch()}>Erneut versuchen</Button></div>;
+  if (!data?.authenticated) return <Redirect to={`/admin/login?next=${encodeURIComponent(location)}`} />;
+  if (location === "/admin") return <Redirect to={firstAllowedPath(data)} />;
+  const permission = permissionForPath(location);
+  if (permission && !hasPermission(data, permission)) return <AdminLayout><section className="mx-auto max-w-lg space-y-4 py-12"><h1 className="text-2xl font-semibold">Kein Zugriff auf diesen Bereich</h1><p className="text-muted-foreground">Deinem persönlichen Konto fehlt die Berechtigung für diese Seite. Wende dich bei Bedarf an die zuständige Person im Verein.</p><Link href={firstAllowedPath(data)}><Button>Zu meinem Bereich</Button></Link></section></AdminLayout>;
 
   return <AdminLayout>{children}</AdminLayout>;
 }
@@ -93,6 +102,7 @@ function Router() {
           <Route path="/admin/festivals" component={FestivalsPage} />
           <Route path="/admin/festivals/:festivalId" component={FestivalDetailPage} />
           <Route path="/admin/settings" component={SettingsPage} />
+          <Route path="/admin/users" component={UsersPage} />
           <Route path="/admin/organigramm" component={OrganizationPage} />
           <Route component={NotFound} />
         </Switch>

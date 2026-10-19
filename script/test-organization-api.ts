@@ -9,6 +9,7 @@ import express from "express";
 import session from "express-session";
 import pg from "pg";
 import { registerOrganizationRoutes } from "../server/organization";
+import { isPasswordHash } from "../server/passwords";
 
 const connection = new URL(process.env.DATABASE_URL ?? "");
 assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(connection.hostname), "API test requires a local PostgreSQL database");
@@ -29,6 +30,9 @@ try {
   app.post("/test/admin-session", (req, res) => {
     if (req.body.token !== adminToken) return res.sendStatus(401);
     req.session.isAdmin = true;
+    req.session.authUserId = "isolated-test-admin";
+    req.session.authUserVersion = adminToken;
+    req.session.authPermissions = ["organization.manage"];
     res.json({ success: true });
   });
   app.get("/test/is-admin", (req, res) => res.json({ isAdmin: req.session.isAdmin === true }));
@@ -56,7 +60,7 @@ try {
 
   const anonymous = client(), admin = client(), member = client(), otherMember = client();
   const path = "/api/organization";
-  assert.deepEqual((await anonymous(path + "/access")).data, { authenticated: false, configured: false, isAdmin: false });
+  assert.deepEqual((await anonymous(path + "/access")).data, { authenticated: false, configured: false, isAdmin: false, canManage: false });
   assert.equal((await anonymous(path + "/chart")).status, 401);
   assert.equal((await anonymous(path + "/chart", "PUT", {})).status, 401);
   assert.equal((await anonymous("/api/admin/organization/password", "PUT", { password: "unallowed-password" })).status, 401);
@@ -101,7 +105,7 @@ try {
   await admin(path + "/logout", "POST");
   assert.equal((await admin("/test/is-admin")).data.isAdmin, true);
   const persisted = await control.query(`SELECT password_hash FROM ${schema}.organization_chart`);
-  assert.ok(persisted.rows[0].password_hash.startsWith("scrypt:"));
+  assert.ok(isPasswordHash(persisted.rows[0].password_hash));
   assert.notEqual(persisted.rows[0].password_hash, nextPassword);
   console.log("Organigramm API: Zugang, Rechte, Speichern, Hierarchie, Parallelzugriff, Passwortrotation und Logout bestanden.");
 } finally {

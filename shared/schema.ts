@@ -633,7 +633,7 @@ export const festivalsTable = pgTable("festivals", {
   startDate: varchar("start_date", { length: 10 }).notNull(), // YYYY-MM-DD
   endDate: varchar("end_date", { length: 10 }).notNull(),     // YYYY-MM-DD
   active: boolean("active").notNull().default(true),
-  password: text("password"), // Klartext, optional – nur intern verglichen
+  password: text("password"), // Passwort-Hash, optional – niemals öffentlich ausgeben
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

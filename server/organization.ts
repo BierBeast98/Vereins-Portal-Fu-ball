@@ -1,10 +1,13 @@
 import type { Express, Request } from "express";
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
+import { hashPassword, verifyPassword } from "./passwords";
+import { initializeSessionLifetime } from "./session-config";
 import { sql } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { organizationChartSchema, type OrganizationChart } from "../shared/organization";
+import { requestHasPermission } from "./portal-users";
+import type { Permission } from "../shared/permissions";
 
 declare module "express-session" {
   interface SessionData {
@@ -12,22 +15,11 @@ declare module "express-session" {
   }
 }
 
-const deriveKey = promisify(scrypt);
 const passwordSchema = z.object({ password: z.string().min(8, "Mindestens 8 Zeichen erforderlich.").max(200) }).strict();
 const loginSchema = z.object({ password: z.string().min(1).max(200) }).strict();
 
-export async function hashOrganizationPassword(password: string): Promise<string> {
-  const salt = randomBytes(16).toString("hex");
-  const key = await deriveKey(password, salt, 64) as Buffer;
-  return `scrypt:${salt}:${key.toString("hex")}`;
-}
-
-export async function verifyOrganizationPassword(password: string, encoded: string): Promise<boolean> {
-  const [algorithm, salt, hash, extra] = encoded.split(":");
-  if (algorithm !== "scrypt" || extra !== undefined || !/^[a-f0-9]{32}$/.test(salt ?? "") || !/^[a-f0-9]{128}$/.test(hash ?? "")) return false;
-  const actual = await deriveKey(password, salt, 64) as Buffer;
-  return timingSafeEqual(actual, Buffer.from(hash, "hex"));
-}
+export const hashOrganizationPassword = hashPassword;
+export const verifyOrganizationPassword = verifyPassword;
 
 type OrganizationRow = {
   version: number;
@@ -37,8 +29,8 @@ type OrganizationRow = {
   auth_version: string;
 };
 
-export function hasOrganizationAccess(session: { isAdmin?: boolean; orgAccessVersion?: string }, row: { password_hash: string | null; auth_version: string }): boolean {
-  return session.isAdmin === true || (!!row.password_hash && session.orgAccessVersion === row.auth_version);
+export function hasOrganizationAccess(session: { isAdmin?: boolean; orgAccessVersion?: string; authUserId?: string; authUserVersion?: string; authPermissions?: Permission[] }, row: { password_hash: string | null; auth_version: string }): boolean {
+  return session.isAdmin === true || (!!session.authUserId && !!session.authUserVersion && session.authPermissions?.includes("organization.manage") === true) || (!!row.password_hash && session.orgAccessVersion === row.auth_version);
 }
 
 function toChart(row: OrganizationRow): OrganizationChart {
@@ -76,7 +68,7 @@ export async function registerOrganizationRoutes(app: Express): Promise<void> {
   app.get("/api/organization/access", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const row = await getRow();
-    res.json({ authenticated: hasOrganizationAccess(req.session, row), configured: !!row.password_hash, isAdmin: req.session.isAdmin === true });
+    res.json({ authenticated: hasOrganizationAccess(req.session, row), configured: !!row.password_hash, isAdmin: requestHasPermission(req, "organization.manage"), canManage: requestHasPermission(req, "organization.manage") });
   });
 
   const loginLimiter = rateLimit({
@@ -96,9 +88,21 @@ export async function registerOrganizationRoutes(app: Express): Promise<void> {
     if (!await verifyOrganizationPassword(parsed.data.password, row.password_hash)) return res.status(401).json({ error: "Falsches Passwort." });
     // Preserve existing admin authentication, but rotate the session ID on login.
     const isAdmin = req.session.isAdmin === true;
+    const authUserId = req.session.authUserId;
+    const authUserVersion = req.session.authUserVersion;
+    const authPermissions = req.session.authPermissions;
+    const adminAuthenticatedAt = req.session.authenticatedAt;
     await new Promise<void>((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
     req.session.isAdmin = isAdmin;
+    if (authUserId && authUserVersion) {
+      req.session.authUserId = authUserId;
+      req.session.authUserVersion = authUserVersion;
+      req.session.authPermissions = authPermissions;
+    }
     req.session.orgAccessVersion = row.auth_version;
+    initializeSessionLifetime(req);
+    // Organigramm-Anmeldung darf die absolute Admin-Laufzeit nicht verlängern.
+    if (authUserId && typeof adminAuthenticatedAt === "number") req.session.authenticatedAt = adminAuthenticatedAt;
     await saveSession(req);
     res.json({ success: true });
   });
@@ -127,7 +131,7 @@ export async function registerOrganizationRoutes(app: Express): Promise<void> {
       UPDATE organization_chart
       SET version = version + 1, title = ${chart.title}, nodes = ${JSON.stringify(chart.nodes)}::jsonb
       WHERE id = 1 AND version = ${chart.version}
-        AND (${req.session.isAdmin === true} OR (password_hash IS NOT NULL AND auth_version = ${req.session.orgAccessVersion ?? ""}))
+        AND (${requestHasPermission(req, "organization.manage")} OR (password_hash IS NOT NULL AND auth_version = ${req.session.orgAccessVersion ?? ""}))
       RETURNING version, title, nodes
     `);
     if (!result.rows[0]) {
@@ -139,7 +143,7 @@ export async function registerOrganizationRoutes(app: Express): Promise<void> {
   });
 
   app.put("/api/admin/organization/password", async (req, res) => {
-    if (!req.session.isAdmin) return res.status(401).json({ error: "Nicht autorisiert." });
+    if (!requestHasPermission(req, "organization.manage")) return res.status(req.session.authUserId ? 403 : 401).json({ error: "Nicht autorisiert." });
     const parsed = passwordSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Das Passwort muss 8 bis 200 Zeichen lang sein." });
     const hash = await hashOrganizationPassword(parsed.data.password);
