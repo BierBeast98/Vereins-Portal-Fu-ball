@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, ArrowRight, Lock, PartyPopper, MapPin } from "lucide-react";
+import { Calendar, ArrowRight, Lock, PartyPopper, MapPin, Network } from "lucide-react";
 import { format, parseISO, isPast, isFuture, isWithinInterval } from "date-fns";
 import { de } from "date-fns/locale";
 import tsvLogo from "@/TSV_Greding_logo_transparent.png";
@@ -78,6 +78,30 @@ export default function HomePage() {
       </div>
 
       <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-10">
+        <Card>
+          <CardHeader>
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-primary/10 p-3 text-primary">
+                <Network className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <div>
+                <CardTitle>Vereinsorganisation</CardTitle>
+                <CardDescription className="mt-2">
+                  Menschen, Aufgaben und Zuständigkeiten im TSV Greding.
+                  Mit dem Organigramm-Passwort gemeinsam ansehen und bearbeiten.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardFooter>
+            <Link href="/organigramm">
+              <Button data-testid="button-open-organization">
+                Organigramm öffnen
+                <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+              </Button>
+            </Link>
+          </CardFooter>
+        </Card>
         {(isLoading || activeCampaigns.length > 0) && (
           <>
             <h2 className="text-2xl font-semibold mb-6">

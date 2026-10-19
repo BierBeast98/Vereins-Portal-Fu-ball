@@ -14,6 +14,8 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const next = new URLSearchParams(window.location.search).get("next");
+  const destination = next === "/admin/organigramm" ? next : "/admin/products";
 
   const { data: authData } = useQuery<{ isAdmin: boolean }>({
     queryKey: ["/api/auth/check"],
@@ -21,9 +23,9 @@ export default function AdminLogin() {
 
   useEffect(() => {
     if (authData?.isAdmin) {
-      setLocation("/admin/products");
+      setLocation(destination);
     }
-  }, [authData, setLocation]);
+  }, [authData, setLocation, destination]);
 
   const loginMutation = useMutation({
     mutationFn: async (password: string) => {
@@ -33,7 +35,7 @@ export default function AdminLogin() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/check"] });
       await queryClient.refetchQueries({ queryKey: ["/api/auth/check"] });
-      setLocation("/admin/products");
+      setLocation(destination);
     },
     onError: () => {
       toast({

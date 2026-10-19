@@ -14,7 +14,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid, Download, ListChecks, PartyPopper } from "lucide-react";
+import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid, Download, ListChecks, PartyPopper, Network } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import tsvLogo from "@/TSV_Greding_logo_transparent.png";
 
@@ -68,6 +68,11 @@ const festivalItems = [
 ];
 
 const settingsItems = [
+  {
+    title: "Organigramm",
+    url: "/admin/organigramm",
+    icon: Network,
+  },
   {
     title: "Einstellungen",
     url: "/admin/settings",

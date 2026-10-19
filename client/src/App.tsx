@@ -21,6 +21,7 @@ import BfvImportPage from "@/pages/admin/bfv-import";
 import RequestsPage from "@/pages/admin/requests";
 import FestivalsPage from "@/pages/admin/festivals";
 import FestivalDetailPage from "@/pages/admin/festival-detail";
+import OrganizationPage from "@/pages/organization";
 import { Loader2 } from "lucide-react";
 
 function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,7 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
 }
 
 function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
   const { data, isLoading } = useQuery<{ isAdmin: boolean }>({
     queryKey: ["/api/auth/check"],
   });
@@ -61,7 +63,7 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!data?.isAdmin) {
-    return <Redirect to="/admin/login" />;
+    return <Redirect to={location === "/admin/organigramm" ? "/admin/login?next=/admin/organigramm" : "/admin/login"} />;
   }
 
   return <AdminLayout>{children}</AdminLayout>;
@@ -91,6 +93,7 @@ function Router() {
           <Route path="/admin/festivals" component={FestivalsPage} />
           <Route path="/admin/festivals/:festivalId" component={FestivalDetailPage} />
           <Route path="/admin/settings" component={SettingsPage} />
+          <Route path="/admin/organigramm" component={OrganizationPage} />
           <Route component={NotFound} />
         </Switch>
       </ProtectedAdminRoute>
@@ -100,6 +103,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={HomePage} />
+      <Route path="/organigramm" component={OrganizationPage} />
       <Route path="/order/:campaignId" component={OrderFormPage} />
       <Route path="/festival/:festivalId" component={FestivalSignupPage} />
       <Route component={NotFound} />

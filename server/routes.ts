@@ -25,6 +25,7 @@ import type { Team, InsertCalendarEvent, Field, EventRequestStatus } from "@shar
 import multer from "multer";
 import { processAndUploadImage, serveImage } from "./imageUpload";
 import { createEventRequestWithValidation, approveEventRequest, rejectEventRequest, checkEventRequestConflicts } from "./eventRequestService";
+import { registerOrganizationRoutes } from "./organization";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -82,6 +83,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Allgemeines Rate Limiting für alle API-Endpunkte
   app.use("/api/", apiLimiter);
+  await registerOrganizationRoutes(app);
 
   // Auth endpoints
   app.post("/api/auth/login", loginLimiter, async (req, res) => {
