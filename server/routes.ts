@@ -23,12 +23,14 @@ import {
   verifyFestivalPasswordSchema,
 } from "@shared/schema";
 import { z } from "zod";
-import { sendOrderConfirmation, sendEventRequestNotification } from "./email";
+import { sendOrderConfirmation, sendEventRequestNotification, sendEventRequestFeedback } from "./email";
 import type { Team, InsertCalendarEvent, Field, EventRequestStatus } from "@shared/schema";
 import multer from "multer";
 import { processAndUploadImage, serveImage } from "./imageUpload";
 import { createEventRequestWithValidation, approveEventRequest, rejectEventRequest, checkEventRequestConflicts } from "./eventRequestService";
 import { registerOrganizationRoutes } from "./organization";
+
+import { deriveTrainingSchedule, trainingWindow } from "@shared/training-schedule";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -204,7 +206,7 @@ export async function registerRoutes(
           return {
             id: r.id,
             title: r.title,
-            type: "training" as const,
+            type: r.type === "spiel" ? "spiel" as const : "training" as const,
             team: r.team,
             field: r.pitch,
             date,
@@ -221,6 +223,18 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error loading public calendar events:", error);
       res.status(500).json({ error: "Termine konnten nicht geladen werden" });
+    }
+  });
+
+  // Publish only derived training slots; never coach contact details or private notes.
+  app.get("/api/public/training-schedule", async (_req, res) => {
+    try {
+      const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date());
+      const window = trainingWindow(today);
+      const events = await dbStorage.getCalendarEventsByDateRange(window.start, window.end);
+      res.json({ ...window, slots: deriveTrainingSchedule(events, today) });
+    } catch {
+      res.status(500).json({ error: "Trainingszeiten konnten nicht geladen werden" });
     }
   });
 
@@ -784,12 +798,7 @@ export async function registerRoutes(
       const base = insertEventRequestSchema.partial().parse(rest);
       const patch: any = { ...base };
       if ("team" in body) patch.team = body.team === null ? null : body.team;
-      if ("status" in body) {
-        if (typeof body.status === "string" && !EVENT_REQUEST_STATUSES.includes(body.status as any)) {
-          return res.status(400).json({ error: "Ungültiger Status" });
-        }
-        patch.status = body.status;
-      }
+      if ("status" in body) return res.status(400).json({ error: "Statusänderungen bitte über Freigeben oder Ablehnen mit Begründung vornehmen." });
       if ("adminNote" in body) {
         patch.adminNote = body.adminNote;
       }
@@ -810,13 +819,15 @@ export async function registerRoutes(
     try {
       const base = insertEventRequestSchema.partial().parse(req.body);
       const body = req.body as Record<string, unknown>;
+      const previous = await dbStorage.getEventRequestById(req.params.id as string);
       const { request, event } = await approveEventRequest(req.params.id as string, {
         ...base,
         adminNote: typeof body?.adminNote === "string" ? body.adminNote : undefined,
         recurringGroupId: typeof body?.recurringGroupId === "string" ? body.recurringGroupId : undefined,
         force: body?.force === true,
       });
-      res.json({ request, event });
+      const emailDelivery = previous?.status === "approved" ? "unchanged" : await sendEventRequestFeedback(request);
+      res.json({ request, event, emailDelivery });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
@@ -839,9 +850,15 @@ export async function registerRoutes(
       if (!EVENT_REQUEST_STATUSES.includes(status)) {
         return res.status(400).json({ error: "Ungültiger Status" });
       }
-      const updated = await rejectEventRequest(req.params.id as string, status, req.body?.adminNote);
-      res.json(updated);
+      if (status !== "rejected") return res.status(400).json({ error: "Zum Ablehnen ist der Status rejected erforderlich." });
+      const adminNote = z.string().max(5000).optional().parse(req.body?.adminNote);
+      const rejectionReason = z.string().trim().min(1, "Bitte einen Ablehnungsgrund angeben").max(5000).parse(req.body?.rejectionReason);
+      const previous = await dbStorage.getEventRequestById(req.params.id as string);
+      const updated = await rejectEventRequest(req.params.id as string, status, adminNote, rejectionReason);
+      const emailDelivery = previous?.status === "rejected" ? "unchanged" : await sendEventRequestFeedback(updated);
+      res.json({ ...updated, emailDelivery });
     } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       console.error("Error rejecting event request:", error);
       res.status(500).json({ error: "Vorschlag konnte nicht abgelehnt werden" });
     }

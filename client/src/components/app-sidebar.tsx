@@ -11,6 +11,7 @@ type NavigationItem = { title: string; url: string; icon: LucideIcon; permission
 const groups: { title: string; items: NavigationItem[] }[] = [
   { title: "Fußball-Planung", items: [
     { title: "Jahreskalender", url: "/admin/calendar", icon: CalendarDays, permission: "calendar.read" },
+    { title: "Trainingszeiten", url: "/admin/training-times", icon: Calendar, permission: "calendar.read" },
     { title: "Platzbelegung", url: "/admin/fields", icon: LayoutGrid, permission: "calendar.read" },
     { title: "Vorschläge / Requests", url: "/admin/requests", icon: ListChecks, permission: "requests.read" },
     { title: "BFV-Import", url: "/admin/bfv-import", icon: Download, permission: "bfv.read" },

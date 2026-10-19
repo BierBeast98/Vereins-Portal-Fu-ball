@@ -1,3 +1,5 @@
+import type { FeedbackResult } from "@shared/request-feedback";
+import { RequestFeedback } from "@/components/request-feedback";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { EventRequest, Field, Team } from "@shared/schema";
@@ -69,6 +71,7 @@ interface ApprovePayload {
   end: string;
   team?: Team;
   adminNote?: string;
+  rejectionReason?: string;
   force?: boolean;
   /** Termine, die der Admin aus der Serie ausgeschlossen hat → werden abgelehnt */
   excludedIds: string[];
@@ -85,6 +88,8 @@ export default function RequestsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected">("pending");
+  const [feedbackEmailFailed, setFeedbackEmailFailed] = useState(false);
+  const [feedbackRequests, setFeedbackRequests] = useState<EventRequest[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<RequestGroup | null>(null);
   const [conflictInfo, setConflictInfo] = useState<{
     pendingApprove: ApproveInput;
@@ -111,6 +116,11 @@ export default function RequestsPage() {
       const durationMinutes = Math.round((end.getTime() - start.getTime()) / 60000);
       const key = [
         req.createdBy ?? "",
+        req.contactEmail ?? "",
+        req.contactPhone ?? "",
+        req.rejectionReason ?? "",
+        req.type,
+        req.team ?? "",
         req.title,
         req.pitch,
         // Berlin-Ortszeit verwenden (nicht UTC), damit Zeitumstellung keine Gruppe splittet
@@ -143,6 +153,7 @@ export default function RequestsPage() {
     mutationFn: async (input: ApproveInput) => {
       const { group, payload } = input;
       if (!group) throw new Error("No selection");
+      const decided: FeedbackResult[] = [];
 
       const baseStart = new Date(payload.start);
       const baseEnd = new Date(payload.end);
@@ -150,6 +161,7 @@ export default function RequestsPage() {
         throw new Error("Ungültige Start- oder Endzeit");
       }
       const durationMs = baseEnd.getTime() - baseStart.getTime();
+      if (payload.excludedIds.length && !payload.rejectionReason?.trim()) throw new Error("Bitte einen Grund für die ausgeschlossenen Termine angeben.");
 
       const included = group.items.filter((r) => !payload.excludedIds.includes(r.id));
       if (included.length === 0) {
@@ -193,7 +205,8 @@ export default function RequestsPage() {
           }
           throw new Error(data?.message || data?.error || "Freigabe fehlgeschlagen");
         }
-        await res.json();
+        const result = await res.json();
+        decided.push({ request: result.request ?? result, delivery: result.emailDelivery });
       }
 
       // Ausgeschlossene Termine erst NACH erfolgreicher Freigabe ablehnen
@@ -205,17 +218,24 @@ export default function RequestsPage() {
           credentials: "include",
           body: JSON.stringify({
             status: "rejected",
-            adminNote: payload.adminNote || "Einzeltermin aus Serie ausgeschlossen",
+            rejectionReason: payload.rejectionReason,
+            adminNote: payload.adminNote,
           }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data?.error || "Ausschluss eines Einzeltermins fehlgeschlagen");
         }
+        const result = await res.json();
+        decided.push({ request: result, delivery: result.emailDelivery });
       }
-      return true;
+      return decided;
     },
-    onSuccess: () => {
+    onSuccess: (decided) => {
+      const failed = decided.some(item => item.delivery === "failed");
+      const sent = decided.filter(item => item.delivery === "sent").length;
+      setFeedbackEmailFailed(failed);
+      setFeedbackRequests(decided.filter(item => item.delivery === "manual" || item.delivery === "failed").map(item => item.request));
       const type = selectedGroup?.head?.type;
       const title =
         type === "delete_request"
@@ -228,8 +248,8 @@ export default function RequestsPage() {
           ? "Der Termin wurde aus dem Kalender entfernt."
           : type === "change_request"
           ? "Der Termin wurde im Kalender aktualisiert."
-          : "Das Training wurde in den Kalender übernommen.";
-      toast({ title, description });
+          : type === "spiel" ? "Das Spiel wurde in den Kalender übernommen." : "Das Training wurde in den Kalender übernommen.";
+      toast({ title, description: failed ? "Die Entscheidung ist gespeichert, aber mindestens eine E-Mail konnte nicht versendet werden. Bitte nutze die vorbereitete manuelle Rückmeldung." : sent ? `${description} ${sent} E-Mail${sent === 1 ? " wurde" : "s wurden"} automatisch versendet.` : description, variant: failed ? "destructive" : "default" });
       setSelectedGroup(null);
       setConflictInfo(null);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
@@ -245,27 +265,33 @@ export default function RequestsPage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: async (input: { group: RequestGroup; adminNote?: string }) => {
-      const { group, adminNote } = input;
+    mutationFn: async (input: { group: RequestGroup; rejectionReason: string }) => {
+      const { group, rejectionReason } = input;
       if (!group) throw new Error("No selection");
+      const decided: FeedbackResult[] = [];
 
       for (const req of group.items) {
         const res = await fetch(`/api/admin/event-requests/${req.id}/reject`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ status: "rejected", adminNote }),
+          body: JSON.stringify({ status: "rejected", rejectionReason }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data?.error || "Ablehnung fehlgeschlagen");
         }
-        await res.json();
+        const result = await res.json();
+        decided.push({ request: result.request ?? result, delivery: result.emailDelivery });
       }
-      return true;
+      return decided;
     },
-    onSuccess: () => {
-      toast({ title: "Vorschlag abgelehnt" });
+    onSuccess: (decided) => {
+      const failed = decided.some(item => item.delivery === "failed");
+      const sent = decided.filter(item => item.delivery === "sent").length;
+      setFeedbackEmailFailed(failed);
+      setFeedbackRequests(decided.filter(item => item.delivery === "manual" || item.delivery === "failed").map(item => item.request));
+      toast({ title: "Vorschlag abgelehnt", description: failed ? "Die Ablehnung ist gespeichert, aber mindestens eine E-Mail konnte nicht versendet werden. Bitte nutze die vorbereitete manuelle Rückmeldung." : sent ? `Die Begründung ist gespeichert. ${sent} E-Mail${sent === 1 ? " wurde" : "s wurden"} automatisch versendet.` : "Die Begründung ist gespeichert. Bei hinterlegter Telefonnummer kannst du die Rückmeldung über WhatsApp selbst versenden.", variant: failed ? "destructive" : "default" });
       setSelectedGroup(null);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
     },
@@ -379,6 +405,9 @@ export default function RequestsPage() {
                 <div className="text-xs text-muted-foreground">
                   {formatDateTime(head.startAt)} – {formatDateTime(head.endAt)}{" "}
                   {head.createdBy && `· ${head.createdBy}`}
+                  {head.contactEmail && ` · ${head.contactEmail}`}
+                  {head.contactPhone && ` · ${head.contactPhone}`}
+                  {head.type === "spiel" && " · Spielantrag"}
                   {head.team && ` · ${TEAM_LABELS[head.team as Team]}`}
                   {count > 1 && (
                     <span className="ml-1 text-[11px] text-muted-foreground">
@@ -408,14 +437,21 @@ export default function RequestsPage() {
         </CardContent>
       </Card>
 
+      {feedbackRequests.length > 0 && <Dialog open onOpenChange={open => { if (!open) setFeedbackRequests([]); }}>
+        <DialogContent className="max-w-xl w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{feedbackEmailFailed ? "E-Mail-Versand fehlgeschlagen" : "Rückmeldung per WhatsApp"}</DialogTitle><DialogDescription>{feedbackEmailFailed ? "Die Entscheidung wurde gespeichert. Du kannst die Nachricht ersatzweise über deinen eigenen Account versenden." : "Für Telefonnummern ist die Nachricht vorbereitet. Öffne WhatsApp und sende sie selbst ab."}</DialogDescription></DialogHeader>
+          <RequestFeedback requests={feedbackRequests} emailFailed={feedbackEmailFailed} />
+          <DialogFooter><Button variant="outline" onClick={() => setFeedbackRequests([])}>Schließen</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>}
       {selectedGroup && (
         <RequestDialog
           group={selectedGroup}
           onClose={() => setSelectedGroup(null)}
           onSave={(payload) => saveMutation.mutate({ group: selectedGroup, payload })}
           onApprove={(payload) => approveMutation.mutate({ group: selectedGroup, payload })}
-          onReject={(note) => rejectMutation.mutate({ group: selectedGroup, adminNote: note })}
-          isSaving={saveMutation.isPending}
+          onReject={(reason) => rejectMutation.mutate({ group: selectedGroup, rejectionReason: reason })}
+          isSaving={saveMutation.isPending || approveMutation.isPending || rejectMutation.isPending}
         />
       )}
 
@@ -468,7 +504,7 @@ interface RequestDialogProps {
   onClose: () => void;
   onSave: (payload: { title: string; pitch: Field; start: string; end: string; team?: Team | "_none" }) => void;
   onApprove: (payload: ApprovePayload) => void;
-  onReject: (note?: string) => void;
+  onReject: (reason: string) => void;
   isSaving?: boolean;
 }
 
@@ -486,6 +522,8 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
   const [end, setEnd] = useState(() => isoToDatetimeLocalBerlin(head.endAt));
   const [team, setTeam] = useState<Team | "_none">((head.team as Team) || "_none");
   const [adminNote, setAdminNote] = useState(head.adminNote ?? "");
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState(head.rejectionReason ?? "");
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
 
   const isPendingStatus = head.status === "pending";
@@ -566,13 +604,15 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
     onApprove({
       ...savePayload(),
       adminNote: adminNote || undefined,
+      rejectionReason: rejectionReason.trim() || undefined,
       excludedIds: Array.from(excludedIds),
       conflictIds,
     });
   };
 
   const handleReject = () => {
-    onReject(adminNote || undefined);
+    if (!rejecting) { setRejecting(true); return; }
+    if (rejectionReason.trim()) onReject(rejectionReason.trim());
   };
 
   return (
@@ -587,6 +627,12 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
               Angelegt von {head.createdBy || "unbekannt"} am{" "}
               {formatDateTime(head.createdAt)}
             </div>
+            {(head.contactEmail || head.contactPhone) && <div className="flex flex-wrap gap-3">
+              {head.contactEmail && <a className="text-primary underline" href={`mailto:${head.contactEmail}`}>{head.contactEmail}</a>}
+              {head.contactPhone && <a className="text-primary underline" href={`tel:${head.contactPhone.replace(/[^+0-9]/g, "")}`}>{head.contactPhone}</a>}
+            </div>}
+            {!head.contactEmail && !head.contactPhone && <p>Keine Rückmeldung angefordert.</p>}
+            {head.rejectionReason && <p className="whitespace-pre-wrap rounded-md border p-3"><strong>Grund der Ablehnung:</strong> {head.rejectionReason}</p>}
             {head.type === "delete_request" && (
               <div className="rounded-md bg-destructive/10 border border-destructive/30 text-destructive px-3 py-2 text-sm font-medium">
                 Löschvorschlag – dieser Termin wird nach Bestätigung dauerhaft aus dem Kalender entfernt.
@@ -732,6 +778,7 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
               </SelectContent>
             </Select>
           </div>
+          {!isPendingStatus && <div className="rounded-lg border p-3"><RequestFeedback requests={items} /></div>}
           <div className="space-y-2">
             <Label>Notiz Betreuer</Label>
             <Textarea value={head.note ?? ""} readOnly />
@@ -744,20 +791,26 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
               onChange={(e) => setAdminNote(e.target.value)}
             />
           </div>
+          {(rejecting || excludedIds.size > 0) && <div className="space-y-2 rounded-lg border border-destructive/40 p-3">
+            <Label htmlFor="rejection-reason">{rejecting ? "Grund der Ablehnung" : "Grund für ausgeschlossene Termine"} *</Label>
+            <Textarea id="rejection-reason" value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} required maxLength={5000} autoFocus />
+            <p className="text-xs text-muted-foreground">Mit hinterlegter E-Mail-Adresse wird die Begründung automatisch versendet. Ist nur eine Telefonnummer hinterlegt, öffnest und versendest du die vorbereitete WhatsApp-Nachricht selbst.</p>
+          </div>}
         </div>
         <DialogFooter className="mt-4 flex-wrap gap-2">
           <Button variant="outline" onClick={onClose} disabled={isSaving}>
             Schließen
           </Button>
-          <Button variant="secondary" onClick={handleSave} disabled={isSaving}>
+          {rejecting && <Button variant="outline" onClick={() => setRejecting(false)} disabled={isSaving}>Zurück zur Prüfung</Button>}
+          <Button variant="secondary" onClick={handleSave} disabled={isSaving || rejecting}>
             {isSaving ? "Speichern…" : "Speichern"}
           </Button>
-          <Button variant="destructive" onClick={handleReject} disabled={isSaving}>
-            Ablehnen{count > 1 ? " (Serie)" : ""}
+          <Button variant="destructive" onClick={handleReject} disabled={isSaving || (rejecting && !rejectionReason.trim())}>
+            {rejecting ? "Ablehnung bestätigen" : `Ablehnen${count > 1 ? " (Serie)" : ""}`}
           </Button>
           <Button
             onClick={handleApprove}
-            disabled={isSaving || (showOccurrences && includedCount === 0)}
+            disabled={isSaving || rejecting || (excludedIds.size > 0 && !rejectionReason.trim()) || (showOccurrences && includedCount === 0)}
             variant={head.type === "delete_request" ? "destructive" : "default"}
           >
             {head.type === "delete_request"

@@ -78,6 +78,7 @@ export default function HomePage() {
       </div>
 
       <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-10">
+        <Link href="/trainingszeiten"><Button variant="outline" className="w-full sm:w-auto"><Calendar className="mr-2 h-4 w-4" />Trainingszeiten der Mannschaften ansehen</Button></Link>
         <Card>
           <CardHeader>
             <div className="flex items-start gap-3">

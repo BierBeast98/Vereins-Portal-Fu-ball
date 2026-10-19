@@ -94,6 +94,9 @@ export const importWarningsTable = pgTable("import_warnings", {
 // Training / event requests from coaches (pending approval by admin)
 export const eventRequestsTable = pgTable("event_requests", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  contactEmail: varchar("contact_email", { length: 255 }),
+  contactPhone: varchar("contact_phone", { length: 40 }),
+  rejectionReason: text("rejection_reason"),
   createdBy: varchar("created_by", { length: 255 }), // free-text name of coach/betreuer
   type: varchar("type", { length: 50 }).notNull().default("training"),
   title: varchar("title", { length: 500 }).notNull(),
@@ -580,12 +583,15 @@ export const TEAM_BORDER_COLORS: Record<Team, string> = {
 export const EVENT_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
 export type EventRequestStatus = typeof EVENT_REQUEST_STATUSES[number];
 
-export const EVENT_REQUEST_TYPES = ["training", "delete_request", "change_request"] as const;
+export const EVENT_REQUEST_TYPES = ["training", "spiel", "delete_request", "change_request"] as const;
 export type EventRequestType = typeof EVENT_REQUEST_TYPES[number];
 
 export interface EventRequest {
   id: string;
   createdBy?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  rejectionReason?: string;
   type: EventRequestType;
   title: string;
   pitch: Field;
@@ -602,6 +608,8 @@ export interface EventRequest {
 }
 
 export const insertEventRequestSchema = z.object({
+  contactEmail: z.string().trim().email("Gültige Rückmelde-E-Mail-Adresse erforderlich").max(255).optional(),
+  contactPhone: z.string().trim().min(5, "Bitte eine gültige Telefonnummer angeben").max(40).regex(/^[+\d ()/.-]+$/, "Bitte eine gültige Telefonnummer angeben").refine(value => value.replace(/\D/g, "").length >= 5, "Bitte eine gültige Telefonnummer angeben").optional(),
   createdBy: z.string().min(1, "Name ist erforderlich").optional(),
   type: z.enum(EVENT_REQUEST_TYPES).default("training"),
   title: z.string().min(1, "Titel ist erforderlich").default("Training"),

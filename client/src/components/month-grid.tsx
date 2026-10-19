@@ -95,11 +95,13 @@ export function MonthGrid({
               ]
                 .filter(Boolean)
                 .join(" ")}
+              aria-label={`${day}.${month + 1}.${year}: ${dayEvents.length} Termine${hasConflict ? ", Platzkonflikt" : ""}`}
+              title={dayEvents.length ? dayEvents.map(event => `${event.startTime}–${event.endTime} ${event.title}`).join("\n") : "Keine Termine"}
               onClick={() => onDayClick(dateStr)}
               data-testid={`day-${dateStr}`}
             >
               <span>{day}</span>
-              <span className="flex flex-wrap justify-center items-center gap-0.5 mt-0.5 px-0.5">
+              <span aria-hidden="true" className="flex flex-wrap justify-center items-center gap-0.5 mt-0.5 px-0.5">
                 {shown.map((e, j) => (
                   <span key={j} className={`w-1.5 h-1.5 rounded-full ${dotClass(e)}`} />
                 ))}

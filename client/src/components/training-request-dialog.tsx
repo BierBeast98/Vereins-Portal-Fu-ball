@@ -20,6 +20,9 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [step, setStep] = useState(1);
+  const [contactPhone, setContactPhone] = useState("");
+  const [requestType, setRequestType] = useState<"training" | "spiel">("training");
+  const [contactEmail, setContactEmail] = useState("");
   const [name, setName] = useState("");
   const [date, setDate] = useState(defaultDate ?? "");
   const [startTime, setStartTime] = useState("18:00");
@@ -69,8 +72,10 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
         endAt.setMinutes(endAt.getMinutes() + duration);
 
         const body = {
+          contactEmail: contactEmail.trim() || undefined,
+          contactPhone: contactPhone.trim() || undefined,
           createdBy: name || undefined,
-          type: "training",
+          type: requestType,
           title,
           pitch: field,
           team,
@@ -97,8 +102,8 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
       toast({
         title: repeatWeekly ? "Vorschläge gespeichert" : "Vorschlag gespeichert",
         description: repeatWeekly
-          ? "Deine wiederkehrenden Trainingszeiten wurden als Vorschläge gespeichert und müssen vom Admin freigegeben werden."
-          : "Deine Trainingszeit wurde als Vorschlag gespeichert und muss vom Admin freigegeben werden.",
+          ? "Deine wiederkehrenden Termine wurden als Vorschläge gespeichert und müssen vom Admin freigegeben werden."
+          : "Dein Termin wurde als Vorschlag gespeichert und muss vom Admin freigegeben werden.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/event-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/public/calendar/fields"] });
@@ -131,7 +136,7 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto w-[calc(100vw-2rem)] max-w-sm p-4">
         <DialogHeader>
-          <DialogTitle>Training vorschlagen</DialogTitle>
+          <DialogTitle>Training oder Spiel beantragen</DialogTitle>
         </DialogHeader>
 
         {/* Step indicator */}
@@ -170,6 +175,19 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
               />
             </div>
 
+            <div className="space-y-1.5">
+              <Label htmlFor="training-contact-email">E-Mail für Rückmeldungen (optional)</Label>
+              <Input id="training-contact-email" type="email" autoComplete="email" maxLength={255} value={contactEmail} onChange={event => setContactEmail(event.target.value)} aria-describedby="training-email-help" />
+              <p id="training-email-help" className="text-xs text-muted-foreground">Mit einer E-Mail-Adresse erhältst du die Entscheidung automatisch per E-Mail. Wenn du nur eine Telefonnummer hinterlegst, ist eine persönliche Rückmeldung per WhatsApp möglich. Kontaktdaten werden nicht öffentlich angezeigt.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="request-contact-phone">Telefonnummer für persönliche Rückmeldungen (optional)</Label>
+              <Input id="request-contact-phone" type="tel" autoComplete="tel" placeholder="z. B. +49 171 1234567" maxLength={40} value={contactPhone} onChange={event => setContactPhone(event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Was möchtest du beantragen?</Label>
+              <Select value={requestType} onValueChange={value => { setRequestType(value as "training" | "spiel"); if (title === "Training" || title === "Spiel") setTitle(value === "spiel" ? "Spiel" : "Training"); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="training">Training</SelectItem><SelectItem value="spiel">Spiel auf unserem Sportplatz</SelectItem></SelectContent></Select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="date">Datum</Label>
@@ -320,6 +338,8 @@ export function TrainingRequestDialog({ open, onOpenChange, defaultDate, default
               <p><span className="font-medium text-foreground">Dauer:</span> {duration} Min. · <span className="font-medium text-foreground">Platz:</span> {FIELD_LABELS[field]}</p>
               {team && <p><span className="font-medium text-foreground">Mannschaft:</span> {TEAM_LABELS[team]}</p>}
               {repeatWeekly && repeatUntil && <p><span className="font-medium text-foreground">Wiederholt bis:</span> {repeatUntil}</p>}
+              <p><span className="font-medium text-foreground">Antrag:</span> {requestType === "spiel" ? "Spiel" : "Training"}</p>
+              {(contactEmail || contactPhone) ? <p><span className="font-medium text-foreground">Rückmeldung an:</span> {[contactEmail, contactPhone].filter(Boolean).join(" · ")}</p> : <p>Keine Rückmeldung angefordert.</p>}
               {name && <p><span className="font-medium text-foreground">Betreuer:</span> {name}</p>}
             </div>
 

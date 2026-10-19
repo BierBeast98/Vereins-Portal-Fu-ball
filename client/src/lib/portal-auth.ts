@@ -34,6 +34,7 @@ export function hasPermission(auth: AuthState | undefined, permission: Permissio
 
 export const adminDestinations: { path: string; permission: Permission }[] = [
   { path: "/admin/calendar", permission: "calendar.read" },
+  { path: "/admin/training-times", permission: "calendar.read" },
   { path: "/admin/fields", permission: "calendar.read" },
   { path: "/admin/requests", permission: "requests.read" },
   { path: "/admin/bfv-import", permission: "bfv.read" },

@@ -134,6 +134,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await db.execute(sql`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255), ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(40), ADD COLUMN IF NOT EXISTS rejection_reason TEXT`);
+
   // DB migration: add target_event_id column if not present
   try {
     await db.execute(sql`ALTER TABLE event_requests ADD COLUMN IF NOT EXISTS target_event_id VARCHAR(36)`);

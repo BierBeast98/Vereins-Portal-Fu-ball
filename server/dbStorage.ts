@@ -90,7 +90,7 @@ export interface IDbStorage {
   listEventRequests(filter: { status?: EventRequestStatus; fromDate?: string; toDate?: string }): Promise<EventRequest[]>;
   updateEventRequest(
     id: string,
-    patch: Partial<InsertEventRequest> & { status?: EventRequestStatus; adminNote?: string; approvedEventId?: string | null }
+    patch: Partial<InsertEventRequest> & { status?: EventRequestStatus; adminNote?: string; rejectionReason?: string; approvedEventId?: string | null }
   ): Promise<EventRequest | null>;
   // Products
   getAllProducts(): Promise<Product[]>;
@@ -179,6 +179,9 @@ function dbFieldMappingToFieldMapping(dbMapping: FieldMappingDb): FieldMapping {
 function dbEventRequestToEventRequest(dbReq: EventRequestDb): EventRequest {
   return {
     id: dbReq.id,
+    contactEmail: dbReq.contactEmail ?? undefined,
+    contactPhone: dbReq.contactPhone ?? undefined,
+    rejectionReason: dbReq.rejectionReason ?? undefined,
     createdBy: dbReq.createdBy ?? undefined,
     type: (dbReq.type as EventRequest["type"]) ?? "training",
     title: dbReq.title,
@@ -628,6 +631,8 @@ export class DbStorage implements IDbStorage {
       .insert(eventRequestsTable)
       .values({
         id,
+        contactEmail: data.contactEmail ?? null,
+        contactPhone: data.contactPhone ?? null,
         createdBy: data.createdBy ?? null,
         type: data.type ?? "training",
         title: data.title || "Training",
@@ -678,11 +683,14 @@ export class DbStorage implements IDbStorage {
 
   async updateEventRequest(
     id: string,
-    patch: Partial<InsertEventRequest> & { status?: EventRequestStatus; adminNote?: string; approvedEventId?: string | null }
+    patch: Partial<InsertEventRequest> & { status?: EventRequestStatus; adminNote?: string; rejectionReason?: string; approvedEventId?: string | null }
   ): Promise<EventRequest | null> {
     const updateData: Partial<EventRequestDb> = {
       updatedAt: new Date(),
     };
+    if (patch.rejectionReason !== undefined) updateData.rejectionReason = patch.rejectionReason;
+    if (patch.contactPhone !== undefined) updateData.contactPhone = patch.contactPhone;
+    if (patch.contactEmail !== undefined) updateData.contactEmail = patch.contactEmail;
     if (patch.createdBy !== undefined) updateData.createdBy = patch.createdBy ?? null;
     if (patch.type !== undefined) updateData.type = patch.type;
     if (patch.title !== undefined) updateData.title = patch.title;

@@ -15,6 +15,7 @@ import ProductsPage from "@/pages/admin/products";
 import CampaignsPage from "@/pages/admin/campaigns";
 import OrdersPage from "@/pages/admin/orders";
 import SettingsPage from "@/pages/admin/settings";
+import TrainingTimesPage from "@/pages/training-times";
 import CalendarPage from "@/pages/admin/calendar";
 import FieldsPage from "@/pages/admin/fields";
 import BfvImportPage from "@/pages/admin/bfv-import";
@@ -95,6 +96,7 @@ function Router() {
           <Route path="/admin/products" component={ProductsPage} />
           <Route path="/admin/campaigns" component={CampaignsPage} />
           <Route path="/admin/orders" component={OrdersPage} />
+          <Route path="/admin/training-times" component={TrainingTimesPage} />
           <Route path="/admin/calendar" component={CalendarPage} />
           <Route path="/admin/fields" component={FieldsPage} />
           <Route path="/admin/requests" component={RequestsPage} />
@@ -113,6 +115,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={HomePage} />
+      <Route path="/trainingszeiten" component={TrainingTimesPage} />
       <Route path="/organigramm" component={OrganizationPage} />
       <Route path="/order/:campaignId" component={OrderFormPage} />
       <Route path="/festival/:festivalId" component={FestivalSignupPage} />

@@ -1,3 +1,4 @@
+import { requestFeedback, type FeedbackDelivery } from "@shared/request-feedback";
 import { Resend } from "resend";
 import type { Order, EventRequest } from "@shared/schema";
 
@@ -236,5 +237,29 @@ export async function sendEventRequestNotification(request: EventRequest): Promi
   } catch (error) {
     console.error("Fehler beim Senden der Admin-Benachrichtigung:", error);
     return false;
+  }
+}
+
+// Email has priority. Phone-only contacts always remain manual.
+export async function sendEventRequestFeedback(request: EventRequest): Promise<FeedbackDelivery> {
+  if (!request.contactEmail) return request.contactPhone ? "manual" : "not-requested";
+  if (!resend) return "failed";
+  try {
+    const draft = requestFeedback([request], { automatic: true });
+    const result = await resend.emails.send({
+      from: "Vereinsportal TSV Greding <bestellung@vereinsportal-tsv-greding.de>",
+      to: request.contactEmail,
+      ...(process.env.ADMIN_EMAIL ? { replyTo: process.env.ADMIN_EMAIL } : {}),
+      subject: draft.subject,
+      text: draft.text,
+    });
+    if (result.error) {
+      console.error("Rückmelde-E-Mail abgelehnt", { requestId: request.id, code: result.error.name });
+      return "failed";
+    }
+    return "sent";
+  } catch {
+    console.error("Rückmelde-E-Mail konnte nicht gesendet werden", { requestId: request.id });
+    return "failed";
   }
 }

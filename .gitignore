@@ -34,6 +34,6 @@ tmp/
 *.tsbuildinfo
 
 # Claude session checkpoints
-.claude-checkpoint.md
-.claude-checkpoints/
+/.claude-checkpoint.md
+/.claude-checkpoints/
 .claude/worktrees/

@@ -131,6 +131,7 @@ export async function approveEventRequest(
     console.log("[approveEventRequest] delete result:", deleted);
     const updatedRequest = await dbStorage.updateEventRequest(id, {
       status: "approved",
+      rejectionReason: "",
       adminNote: patch.adminNote,
     });
     if (!updatedRequest) {
@@ -152,7 +153,7 @@ export async function approveEventRequest(
 
   if (!patch.force) {
     // For change_request: exclude the target event itself from conflict check
-    const excludeId = existing.type === "change_request" ? existing.targetEventId : undefined;
+    const excludeId = existing.type === "change_request" ? existing.targetEventId : existing.approvedEventId;
     const { hasConflict, conflicts } = await checkFieldConflicts(pitch, startAt, endAt, excludeId ?? undefined);
     if (hasConflict) {
       const error: any = new Error("Konflikt mit bestehenden Terminen");
@@ -163,9 +164,12 @@ export async function approveEventRequest(
   }
 
   const team = patch.team ?? existing.team ?? undefined;
+  const target = existing.type === "change_request" && existing.targetEventId ? await dbStorage.getCalendarEvent(existing.targetEventId) : undefined;
+  const eventType = target?.type ?? (existing.type === "spiel" ? "spiel" : "training");
   const insertEvent: InsertCalendarEvent = {
     title,
-    type: "training",
+    type: eventType,
+    ...(eventType === "spiel" && existing.type === "spiel" ? { isHomeGame: true } : {}),
     team: team as Team | undefined,
     field: pitch,
     date,
@@ -207,6 +211,7 @@ export async function approveEventRequest(
   const updatedRequest = await dbStorage.updateEventRequest(id, {
     ...patch,
     status: "approved",
+    rejectionReason: "",
     approvedEventId: created.id,
   });
 
@@ -220,11 +225,14 @@ export async function approveEventRequest(
 export async function rejectEventRequest(
   id: string,
   status: EventRequestStatus = "rejected",
-  adminNote?: string
+  adminNote?: string,
+  rejectionReason?: string
 ): Promise<EventRequest> {
+  if (!rejectionReason?.trim()) throw new Error("Bitte einen Ablehnungsgrund angeben");
   const updated = await dbStorage.updateEventRequest(id, {
     status,
     adminNote,
+    rejectionReason: rejectionReason!.trim(),
   });
   if (!updated) {
     throw new Error("Request not found");

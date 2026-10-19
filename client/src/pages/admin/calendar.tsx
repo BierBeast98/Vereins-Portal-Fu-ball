@@ -1,3 +1,4 @@
+import { visibleCalendarMonths } from "@shared/calendar-months";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -743,19 +744,23 @@ type ViewMode = "year" | "month" | "day";
 export default function CalendarPage() {
   const { toast } = useToast();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [showPastMonths, setShowPastMonths] = useState(false);
+  const [monthLayout, setMonthLayout] = useState<"games" | "agenda">("games");
   const [viewMode, setViewMode] = useState<ViewMode>("year");
-  const [selectedMonth, setSelectedMonth] = useState<number>(0);
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | undefined>();
   
   const [filterTeam, setFilterTeam] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
+  const [filterField, setFilterField] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   const startDate = `${currentYear}-01-01`;
   const endDate = `${currentYear}-12-31`;
 
-  const { data: events = [], isLoading } = useQuery<CalendarEvent[]>({
+  const { data: events = [], isLoading, error: eventsError, refetch: refetchEvents } = useQuery<CalendarEvent[]>({
     queryKey: ["/api/calendar/events", startDate, endDate],
     queryFn: async () => {
       const res = await fetch(`/api/calendar/events?startDate=${startDate}&endDate=${endDate}`, {
@@ -766,7 +771,7 @@ export default function CalendarPage() {
     },
   });
 
-  const { data: conflicts = [] } = useQuery<{ event1: CalendarEvent; event2: CalendarEvent; reason: string }[]>({
+  const { data: conflicts = [], error: conflictsError } = useQuery<{ event1: CalendarEvent; event2: CalendarEvent; reason: string }[]>({
     queryKey: ["/api/calendar/conflicts", startDate, endDate],
     queryFn: async () => {
       const res = await fetch(`/api/calendar/conflicts?startDate=${startDate}&endDate=${endDate}`, {
@@ -781,13 +786,21 @@ export default function CalendarPage() {
     return events.filter((event) => {
       if (filterTeam !== "all" && event.team !== filterTeam) return false;
       if (filterType !== "all" && event.type !== filterType) return false;
+      if (filterField !== "all" && event.field !== filterField) return false;
+      const text = [event.title, event.opponent, event.location, event.team && TEAM_LABELS[event.team]].filter(Boolean).join(" ").toLocaleLowerCase("de-DE");
+      if (search.trim() && !text.includes(search.trim().toLocaleLowerCase("de-DE"))) return false;
       return true;
     });
-  }, [events, filterTeam, filterType]);
+  }, [events, filterTeam, filterType, filterField, search]);
+
+  const visibleConflicts = useMemo(() => {
+    const ids = new Set(filteredEvents.map(event => event.id));
+    return conflicts.filter(c => ids.has(c.event1.id) || ids.has(c.event2.id));
+  }, [conflicts, filteredEvents]);
 
   const conflictDates = useMemo(
-    () => new Set(conflicts.flatMap((c) => [c.event1.date, c.event2.date])),
-    [conflicts]
+    () => new Set(visibleConflicts.flatMap((c) => [c.event1.date, c.event2.date])),
+    [visibleConflicts]
   );
 
   const eventsByDate = useMemo(() => {
@@ -797,6 +810,7 @@ export default function CalendarPage() {
       existing.push(event);
       map.set(event.date, existing);
     });
+    map.forEach(day => day.sort((a, b) => a.startTime.localeCompare(b.startTime) || a.title.localeCompare(b.title, "de")));
     return map;
   }, [filteredEvents]);
 
@@ -912,12 +926,13 @@ export default function CalendarPage() {
   // Tag-Klick → Tagesansicht, Monatstitel-Klick → Monats-Liste.
   const renderYearView = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
-      {Array.from({ length: 12 }, (_, month) => (
-        <Card key={month} className="p-3">
+      {visibleCalendarMonths(currentYear, todayDate, showPastMonths).map(month => (
+        <Card key={month} className={`p-3 ${currentYear === todayDate.getFullYear() && month === todayDate.getMonth() ? "border-primary" : ""}`}>
+          <p className="mb-2 text-xs text-muted-foreground text-right">{filteredEvents.filter(event => Number(event.date.slice(5, 7)) === month + 1).length} Termine</p>
           <MonthGrid
             year={currentYear}
             month={month}
-            title={MONTHS_DE[month]}
+            title={`${MONTHS_DE[month]} ${currentYear}`}
             eventsByDate={eventsByDate}
             conflictDates={conflictDates}
             todayStr={today}
@@ -933,11 +948,14 @@ export default function CalendarPage() {
           />
         </Card>
       ))}
+      {visibleCalendarMonths(currentYear, todayDate, showPastMonths).length === 0 && <div className="col-span-full rounded-lg border p-6 text-center text-muted-foreground">Alle Monate des Jahres {currentYear} sind vergangen. <Button variant="ghost" onClick={() => setShowPastMonths(true)}>Vergangene Monate anzeigen</Button></div>}
     </div>
   );
 
   const renderMonthView = () => {
     const days = getDaysInMonth(currentYear, selectedMonth);
+    const monthEvents = filteredEvents.filter(event => Number(event.date.slice(5, 7)) === selectedMonth + 1);
+    const games = monthEvents.filter(event => event.type === "spiel").sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
     let lastWeek = -1;
 
     return (
@@ -982,7 +1000,20 @@ export default function CalendarPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-1">
+          <div className="mb-4 flex flex-wrap gap-2" aria-label="Monatsdarstellung">
+            <Button variant={monthLayout === "games" ? "default" : "outline"} size="sm" onClick={() => setMonthLayout("games")}>Spiele als Kacheln ({games.length})</Button>
+            <Button variant={monthLayout === "agenda" ? "default" : "outline"} size="sm" onClick={() => setMonthLayout("agenda")}>Alle Termine ({monthEvents.length})</Button>
+          </div>
+          {monthLayout === "games" ? (
+            games.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{games.map(event => <button type="button" key={event.id} className={`rounded-lg border p-4 text-left transition-shadow hover:shadow-md ${getEventColorClass(event)}`} onClick={e => handleEventClick(event, e)} data-testid={`month-game-${event.id}`}>
+              <p className="text-sm font-medium">{new Date(`${event.date}T12:00:00`).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}</p>
+              <p className="mt-1 text-lg font-bold">{event.startTime}–{event.endTime} Uhr</p>
+              <p className="mt-2 font-semibold break-words">{event.title}</p>
+              {event.team && <p className="text-sm">{TEAM_LABELS[event.team]}</p>}
+              {event.opponent && <p className="text-sm">Gegner: {event.opponent}</p>}
+              <p className="mt-2 text-sm font-medium">{event.isHomeGame === false ? "Auswärtsspiel" : event.isHomeGame === true ? "Heimspiel" : "Spielort offen"} · {event.isHomeGame === false ? event.location || "Ort noch offen" : event.field ? FIELD_LABELS[event.field] : event.location || "Platz noch offen"}</p>
+            </button>)}</div> : <p className="rounded-lg bg-muted/50 p-6 text-center text-muted-foreground">Keine Spiele für {MONTHS_DE[selectedMonth]} {currentYear} in dieser Auswahl. Trainings und andere Einträge findest du unter „Alle Termine“.</p>
+          ) : <div className="space-y-1">
             {days.map((date) => {
               const dateStr = formatDate(date);
               const dayOfWeek = date.getDay();
@@ -1039,7 +1070,7 @@ export default function CalendarPage() {
                 </div>
               );
             })}
-          </div>
+          </div>}
         </CardContent>
       </Card>
     );
@@ -1125,10 +1156,10 @@ export default function CalendarPage() {
             <h1 className="text-2xl font-bold">
               {viewMode === "year" ? `Jahreskalender ${currentYear}` :
                viewMode === "month" ? `${MONTHS_DE[selectedMonth]} ${currentYear}` :
-               "Tagesansicht"}
+               `Tagesansicht ${currentYear}`}
             </h1>
             <p className="text-muted-foreground text-sm">
-              {events.length} Termine | {conflicts.length} Konflikte
+              {filteredEvents.length} von {events.length} Terminen · {visibleConflicts.length} Konflikte in der Auswahl
             </p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1184,6 +1215,12 @@ export default function CalendarPage() {
             </SelectContent>
           </Select>
 
+          <Select value={filterField} onValueChange={setFilterField}>
+            <SelectTrigger className="min-w-[130px] flex-1" aria-label="Nach Platz filtern"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="all">Alle Plätze</SelectItem>{FIELDS.map(field => <SelectItem key={field} value={field}>{FIELD_LABELS[field]}</SelectItem>)}</SelectContent>
+          </Select>
+          <Input className="min-w-[180px] flex-1" value={search} onChange={event => setSearch(event.target.value)} placeholder="Termin, Gegner oder Ort suchen" aria-label="Kalender durchsuchen" />
+          {(filterTeam !== "all" || filterType !== "all" || filterField !== "all" || search) && <Button variant="ghost" size="sm" onClick={() => { setFilterTeam("all"); setFilterType("all"); setFilterField("all"); setSearch(""); }}>Filter zurücksetzen</Button>}
           <Button variant="outline" onClick={handleExport} data-testid="button-export" size="sm">
             <Download className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">CSV Export</span>
@@ -1193,6 +1230,17 @@ export default function CalendarPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2" aria-label="Kalenderansicht">
+        <Button variant={viewMode === "year" ? "default" : "outline"} size="sm" onClick={() => setViewMode("year")}>Jahr</Button>
+        <Button variant={viewMode === "month" ? "default" : "outline"} size="sm" onClick={() => setViewMode("month")}>Monat</Button>
+        <span className="rounded-md bg-muted px-3 py-1 text-sm font-semibold">Kalenderjahr {currentYear}</span>
+        <Button variant="outline" size="sm" onClick={() => { setCurrentYear(todayDate.getFullYear()); setSelectedMonth(todayDate.getMonth()); setSelectedDate(today); setViewMode("day"); }}>Heute</Button>
+        <span className="text-xs text-muted-foreground">Monatstitel öffnet den Monat · Tag öffnet die Termine · Roter Rahmen zeigt Konflikte</span>
+      </div>
+      {eventsError && <div role="alert" className="rounded-lg border border-destructive p-4">Die Kalendertermine konnten nicht geladen werden. <Button variant="outline" size="sm" onClick={() => void refetchEvents()}>Erneut versuchen</Button></div>}
+      {conflictsError && <p role="alert" className="rounded-lg border border-destructive p-4 text-sm">Die Konfliktprüfung ist momentan nicht verfügbar. Die angezeigten Termine wurden nicht auf Überschneidungen geprüft.</p>}
+      {isLoading && <p role="status" className="text-sm text-muted-foreground">Kalender wird geladen …</p>}
+      {!isLoading && !eventsError && events.length > 0 && filteredEvents.length === 0 && <p role="status" className="rounded-lg border p-4 text-muted-foreground">Keine Termine passen zu den ausgewählten Filtern.</p>}
       {viewMode === "year" && (
         <div className="flex flex-wrap items-center justify-center gap-4 mb-4">
           <Button
@@ -1204,6 +1252,7 @@ export default function CalendarPage() {
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="text-xl font-semibold min-w-20 text-center">{currentYear}</span>
+          <Button variant="outline" size="sm" onClick={() => setShowPastMonths(value => !value)} aria-pressed={showPastMonths}>{showPastMonths ? "Vergangene Monate ausblenden" : "Vergangene Monate anzeigen"}</Button>
           <Button
             variant="outline"
             size="icon"
@@ -1215,28 +1264,29 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {conflicts.length > 0 && viewMode === "year" && (
+      {visibleConflicts.length > 0 && viewMode === "year" && (
         <Card className="border-destructive">
           <CardHeader className="pb-2">
             <CardTitle className="text-destructive flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />
-              {conflicts.length} Konflikt{conflicts.length !== 1 ? "e" : ""} gefunden
+              {visibleConflicts.length} Konflikt{visibleConflicts.length !== 1 ? "e" : ""} gefunden
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {conflicts.slice(0, 5).map((conflict, i) => (
-                <div key={i} className="text-sm">
+              {visibleConflicts.slice(0, 5).map((conflict, i) => (
+                <button key={i} type="button" className="block text-left text-sm underline underline-offset-4" onClick={() => { setSelectedDate(conflict.event1.date); setSelectedMonth(Number(conflict.event1.date.slice(5, 7)) - 1); setViewMode("day"); }}>
+                  <span className="font-medium">{new Date(`${conflict.event1.date}T12:00:00`).toLocaleDateString("de-DE")} · </span>
                   <span className="font-medium">{conflict.event1.title}</span>
                   {" & "}
                   <span className="font-medium">{conflict.event2.title}</span>
                   {" - "}
                   <span className="text-muted-foreground">{conflict.reason}</span>
-                </div>
+                </button>
               ))}
-              {conflicts.length > 5 && (
+              {visibleConflicts.length > 5 && (
                 <p className="text-sm text-muted-foreground">
-                  ... und {conflicts.length - 5} weitere
+                  ... und {visibleConflicts.length - 5} weitere
                 </p>
               )}
             </div>
@@ -1249,11 +1299,11 @@ export default function CalendarPage() {
       {viewMode === "day" && renderDayView()}
       
       {/* Mannschaftsfarben (Legende): Kräftig = Spiel, Hell mit Rand = Training */}
-      <div className="mt-6 pt-4 border-t">
-        <h4 className="text-sm font-medium mb-2 text-muted-foreground">Mannschaftsfarben</h4>
+      <details className="mt-6 pt-4 border-t">
+        <summary className="cursor-pointer text-sm font-medium mb-2 text-muted-foreground">Mannschaftsfarben und Legende</summary>
         <p className="text-xs text-muted-foreground mb-2">Kräftig = Spiel · Hell mit Rand = Training</p>
         <div className="flex flex-wrap gap-2">
-          {TEAMS.map((team) => (
+          {TEAMS.filter(team => filteredEvents.some(event => event.team === team)).map((team) => (
             <span key={team} className="inline-flex items-center gap-1">
               <Badge className={TEAM_COLORS_SPIEL[team]} data-testid={`legend-spiel-${team}`}>Spiel</Badge>
               <Badge className={TEAM_COLORS_TRAINING[team]} data-testid={`legend-training-${team}`}>Training</Badge>
@@ -1261,7 +1311,7 @@ export default function CalendarPage() {
             </span>
           ))}
         </div>
-      </div>
+      </details>
     </div>
   );
 }

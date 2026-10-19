@@ -307,7 +307,7 @@ export function MobileFieldCalendar({
         )}
 
         <Button className="w-full mt-4" onClick={onRequestTraining}>
-          Training vorschlagen
+          Training oder Spiel beantragen
         </Button>
       </div>
 
