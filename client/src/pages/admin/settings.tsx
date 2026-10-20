@@ -64,9 +64,9 @@ export default function AdminSettings() {
   };
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
+    <div className="min-w-0 p-0 sm:p-6 max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Settings className="h-8 w-8 text-primary" />
+        <Settings className="h-8 w-8 shrink-0 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">Einstellungen</h1>
           <p className="text-muted-foreground">Dein persönliches Konto verwalten</p>

@@ -79,7 +79,7 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
   return (
     <div className="grid grid-cols-1 gap-6">
       {fields.map((field) => (
-        <div key={field} className="border rounded-lg bg-card shadow-sm min-w-0">
+        <div key={field} className="border rounded-lg bg-card shadow-xs min-w-0">
           <div className="px-3 py-2 border-b">
             <h3 className="font-semibold text-sm">{FIELD_LABELS[field]}</h3>
           </div>
@@ -118,7 +118,7 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
                   {HOURS.map((hour) => (
                     <div
                       key={hour}
-                      className="text-[10px] text-muted-foreground text-right pr-1 flex-shrink-0"
+                      className="text-[10px] text-muted-foreground text-right pr-1 shrink-0"
                       style={{ height: rowHeight }}
                     >
                       {hour}:00
@@ -154,7 +154,7 @@ export function FieldSchedule({ events, startDate, days, fields }: FieldSchedule
                           <div
                             key={event.id}
                             className={`
-                              absolute left-0.5 right-0.5 rounded p-0.5 text-[10px] overflow-hidden shadow-sm
+                              absolute left-0.5 right-0.5 rounded p-0.5 text-[10px] overflow-hidden shadow-xs
                               ${colorClass}
                             `}
                             style={{ top: `${top}px`, height: `${height}px` }}

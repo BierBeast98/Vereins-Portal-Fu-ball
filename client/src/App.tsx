@@ -41,14 +41,14 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-dvh min-h-0 w-full">
         <AppSidebar />
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-col flex-1 overflow-hidden">
           <header className="flex items-center justify-between gap-2 p-3 border-b bg-background">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <div className="flex min-w-0 items-center gap-2"><SidebarTrigger aria-label="Navigation öffnen" data-testid="button-sidebar-toggle" /><span className="truncate text-sm font-semibold md:hidden">Vereinsverwaltung</span></div>
             <ThemeToggle />
           </header>
-          <main className="flex-1 overflow-auto p-6">
+          <main className="admin-content min-h-0 min-w-0 flex-1 overflow-auto overscroll-y-contain p-4 md:p-6">
             {readOnly && <p role="status" className="mb-4 rounded-lg border bg-muted/50 p-3 text-sm text-muted-foreground">Du kannst diesen Bereich ansehen. Für Änderungen fehlen dir die Bearbeitungsrechte.</p>}
             {children}
           </main>
@@ -72,7 +72,7 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
 
   if (error) return <div className="mx-auto max-w-lg space-y-4 p-8"><h1 className="text-xl font-semibold">Zugang konnte nicht geprüft werden</h1><p>Bitte versuche es erneut.</p><Button onClick={() => void refetch()}>Erneut versuchen</Button></div>;
   if (!data?.authenticated) return <Redirect to={`/admin/login?next=${encodeURIComponent(location)}`} />;
-  if (location === "/admin") return <Redirect to={firstAllowedPath(data)} />;
+  if (location === "/admin" || location === "/admin/") return <Redirect to={firstAllowedPath(data)} />;
   const permission = permissionForPath(location);
   if (permission && !hasPermission(data, permission)) return <AdminLayout><section className="mx-auto max-w-lg space-y-4 py-12"><h1 className="text-2xl font-semibold">Kein Zugriff auf diesen Bereich</h1><p className="text-muted-foreground">Deinem persönlichen Konto fehlt die Berechtigung für diese Seite. Wende dich bei Bedarf an die zuständige Person im Verein.</p><Link href={firstAllowedPath(data)}><Button>Zu meinem Bereich</Button></Link></section></AdminLayout>;
 
@@ -92,7 +92,7 @@ function Router() {
     return (
       <ProtectedAdminRoute>
         <Switch>
-          <Route path="/admin" component={() => <Redirect to="/admin/calendar" />} />
+          <Route path="/admin" component={() => <Redirect to="/admin/fields" />} />
           <Route path="/admin/products" component={ProductsPage} />
           <Route path="/admin/campaigns" component={CampaignsPage} />
           <Route path="/admin/orders" component={OrdersPage} />

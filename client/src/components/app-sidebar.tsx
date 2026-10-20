@@ -1,6 +1,7 @@
+import { useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuBadge, SidebarMenuItem, SidebarHeader, SidebarFooter } from "@/components/ui/sidebar";
+import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuBadge, SidebarMenuItem, SidebarHeader, SidebarFooter, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Package, Calendar, ClipboardList, ExternalLink, Settings, LogOut, CalendarDays, LayoutGrid, Download, ListChecks, PartyPopper, Network, Users, type LucideIcon } from "lucide-react";
 import { hasPermission, portalJson, usePortalAuth } from "@/lib/portal-auth";
@@ -32,6 +33,8 @@ const groups: { title: string; items: NavigationItem[] }[] = [
 export function AppSidebar() {
   const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { setOpenMobile } = useSidebar();
+  useEffect(() => { setOpenMobile(false); }, [location, setOpenMobile]);
   const { data: auth } = usePortalAuth();
   const { data: pendingCount = 0 } = useQuery({
     queryKey: ["/api/admin/event-requests", "pending-count"],
@@ -45,7 +48,7 @@ export function AppSidebar() {
     onSuccess: async () => { await queryClient.cancelQueries(); queryClient.clear(); setLocation("/admin/login"); },
   });
   return <Sidebar>
-    <SidebarHeader className="p-4"><div className="flex items-center gap-3"><img src={tsvLogo} alt="TSV Greding" className="h-10 w-10 object-contain" /><div><h2 className="text-base font-semibold leading-tight">TSV Greding</h2><p className="text-xs text-muted-foreground">Vereinsverwaltung</p></div></div></SidebarHeader>
+    <SidebarHeader className="p-4 pr-14 md:pr-4"><div className="flex items-center gap-3"><img src={tsvLogo} alt="TSV Greding" className="h-10 w-10 object-contain" /><div><h2 className="text-base font-semibold leading-tight">TSV Greding</h2><p className="text-xs text-muted-foreground">Vereinsverwaltung</p></div></div></SidebarHeader>
     <SidebarContent>{groups.map((group) => {
       const items = group.items.filter((item) => !item.permission || hasPermission(auth, item.permission));
       if (!items.length) return null;

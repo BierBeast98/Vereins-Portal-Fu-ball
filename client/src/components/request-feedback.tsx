@@ -15,7 +15,7 @@ export function RequestFeedback({ requests, emailFailed = false }: { requests: E
   const { toast } = useToast();
   return <section className="space-y-3" aria-label="Persönliche Rückmeldung">
     <p className="text-sm text-muted-foreground">{emailFailed ? "Die automatische E-Mail konnte nicht versendet werden. Hier kannst du die Nachricht ersatzweise manuell versenden." : head?.contactEmail ? "E-Mail-Rückmeldungen werden beim Entscheiden automatisch versendet. Hier kannst du bei Bedarf eine zusätzliche persönliche Nachricht vorbereiten." : "Die Entscheidung ist gespeichert. Öffne WhatsApp, prüfe den vorbereiteten Text und sende ihn selbst ab."}</p>
-    <p className="text-sm break-words"><strong>Kontakt:</strong> {[head?.contactEmail, head?.contactPhone].filter(Boolean).join(" · ") || "Keine Kontaktdaten hinterlegt"}</p>
+    <p className="text-sm wrap-break-word"><strong>Kontakt:</strong> {[head?.contactEmail, head?.contactPhone].filter(Boolean).join(" · ") || "Keine Kontaktdaten hinterlegt"}</p>
     <div className="space-y-1.5"><Label>Betreff<Input aria-label="Betreff der Rückmeldung" className="mt-1.5" value={draft.subject} onChange={event => setDraft({ ...draft, subject: event.target.value })} /></Label></div>
     <div className="space-y-1.5"><Label>Nachricht<Textarea aria-label="Nachricht zur Entscheidung" className="mt-1.5" rows={10} value={draft.text} onChange={event => setDraft({ ...draft, text: event.target.value })} /></Label></div>
     <div className="flex flex-wrap gap-2">

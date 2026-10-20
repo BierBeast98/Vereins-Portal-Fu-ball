@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, GitBranch, GripHorizontal, KeyRound, LayoutGrid, LockKeyhole, LogOut, Pencil, Plus, Save, Trash2, Users, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, GitBranch, GripHorizontal, KeyRound, LayoutGrid, ListTree, LockKeyhole, LogOut, Pencil, Plus, Save, Trash2, Users, ZoomIn, ZoomOut } from "lucide-react";
 import type { OrganizationChart, OrganizationNode } from "@shared/organization";
 import { collapseOrganizationAtLevel, organizationDepths, revealOrganizationRole, visibleOrganizationNodes } from "@shared/organization-visibility";
 import { canConnectRoles, connectRoles, removeRole } from "@shared/organization-editing";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Input } from "@/components/ui/input";
 import { OrganizationRoleFields } from "@/components/organization-role-fields";
 import { Label } from "@/components/ui/label";
@@ -21,7 +22,7 @@ const colors = {
   purple: { label: "Violett", card: "border-purple-300 bg-purple-50", dot: "bg-purple-600" },
   slate: { label: "Grau", card: "border-slate-300 bg-slate-50", dot: "bg-slate-600" },
 };
-const nativeSelect = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const nativeSelect = "flex min-h-11 sm:min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 const serialized = (chart: OrganizationChart) => JSON.stringify({ title: chart.title, nodes: chart.nodes });
 const clamp = (n: number) => Math.max(0, Math.min(100000, Math.round(n)));
 
@@ -79,6 +80,9 @@ function openPosition(nodes: OrganizationNode[], preferredX: number, preferredY:
 
 export default function OrganizationPage() {
   const [location] = useLocation();
+  const isMobile = useIsMobile();
+  const [preferredView, setPreferredView] = useState<"list" | "diagram" | null>(null);
+  const listView = (preferredView ?? (isMobile ? "list" : "diagram")) === "list";
   const [access, setAccess] = useState<Access | null>(null);
   const [chart, setChart] = useState<OrganizationChart | null>(null);
   const [baseline, setBaseline] = useState("");
@@ -94,7 +98,7 @@ export default function OrganizationPage() {
   const [confirmAction, setConfirmAction] = useState<"delete" | "reload" | "sample" | "arrange" | null>(null);
   const [zoom, setZoom] = useState(1);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
-  const [levelPreset, setLevelPreset] = useState("2");
+  const [levelPreset, setLevelPreset] = useState("all");
   const [fitRevision, setFitRevision] = useState(0);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [connection, setConnection] = useState<Connection | null>(null);
@@ -108,6 +112,14 @@ export default function OrganizationPage() {
   const roleToDelete = chart?.nodes.find((node) => node.id === deleteId);
   const visibleNodes = useMemo(() => visibleOrganizationNodes(chart?.nodes ?? [], collapsedIds), [chart?.nodes, collapsedIds]);
   const visibleIds = useMemo(() => new Set(visibleNodes.map(node => node.id)), [visibleNodes]);
+  const orderedVisibleNodes = useMemo(() => {
+    const ordered: OrganizationNode[] = [];
+    const children = new Map<string | null, OrganizationNode[]>();
+    for (const node of visibleNodes) children.set(node.parentId, [...(children.get(node.parentId) ?? []), node]);
+    const visit = (parentId: string | null) => { for (const node of children.get(parentId) ?? []) { ordered.push(node); visit(node.id); } };
+    visit(null);
+    return ordered;
+  }, [visibleNodes]);
   const depths = useMemo(() => organizationDepths(chart?.nodes ?? []), [chart?.nodes]);
   const maxDepth = Math.max(1, ...Array.from(depths.values()));
   const childCounts = useMemo(() => {
@@ -127,8 +139,8 @@ export default function OrganizationPage() {
     window.requestAnimationFrame(() => canvas.current?.scrollTo({ left: left * nextZoom, top: top * nextZoom }));
   }
   useEffect(() => {
-    if (access?.authenticated && chart) fitVisible();
-  }, [fitRevision, access?.authenticated, Boolean(chart)]);
+    if (access?.authenticated && chart && !listView) fitVisible();
+  }, [fitRevision, access?.authenticated, Boolean(chart), listView]);
   useEffect(() => {
     if (selectedId && !visibleIds.has(selectedId)) setSelectedId(null);
     if (detailsId && !visibleIds.has(detailsId)) setDetailsId(null);
@@ -159,6 +171,7 @@ export default function OrganizationPage() {
   }, []);
 
   function editRole(id: string) {
+    if (listView) { openDetails(id); return; }
     setSelectedId(id); setDetailsId(null);
     window.setTimeout(() => {
       const input = document.getElementById(`org-inline-people-${id}`);
@@ -221,7 +234,7 @@ export default function OrganizationPage() {
 
   async function loadChart() {
     const data = await request<OrganizationChart>("/api/organization/chart");
-    setCollapsedIds(collapseOrganizationAtLevel(data.nodes, 2)); setLevelPreset("2"); setFitRevision(revision => revision + 1);
+    setCollapsedIds(new Set()); setLevelPreset("all"); setFitRevision(revision => revision + 1);
     setChart(data); setBaseline(serialized(data)); setSelectedId(null); setDetailsId(null); setFieldResetKey((key) => key + 1);
   }
   useEffect(() => {
@@ -316,6 +329,15 @@ export default function OrganizationPage() {
     setNotice(""); setConfirmAction(null);
   }
 
+  const saveDisabled = busy || !dirty || !chart?.title.trim() || Boolean(chart?.nodes.some(node => !node.title.trim() || node.people.length > 20 || node.people.some(name => name.trim().length > 100)));
+  function saveChart() {
+    if (!chart || saveDisabled) return;
+    void perform(async () => {
+      const saved = await request<OrganizationChart>("/api/organization/chart", "PUT", chart);
+      setChart(saved); setBaseline(serialized(saved)); setFieldResetKey(key => key + 1); setNotice("Organigramm gespeichert.");
+    });
+  }
+
   const width = Math.max(1000, ...visibleNodes.map(node => node.x + 320));
   const height = Math.max(580, ...visibleNodes.map(node => node.y + 240));
 
@@ -332,13 +354,13 @@ export default function OrganizationPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1800px] space-y-4 p-4 md:p-8">
+      <main className={`mx-auto max-w-[1800px] space-y-4 p-4 md:p-8 ${dirty ? "max-sm:pb-24" : ""}`}>
         {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}{access?.authenticated && chart && <Button variant="outline" size="sm" className="ml-3" onClick={() => setConfirmAction("reload")}>Aktuellen Stand neu laden</Button>}</div>}
         {notice && <div role="status" className="flex items-center gap-2 rounded-lg border bg-primary/5 p-3 text-sm text-primary"><Check className="h-4 w-4" />{notice}</div>}
         {canManageAccess && !access?.configured && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-primary/5 p-4"><p className="text-sm">Lege ein eigenes Organigramm-Passwort fest, damit andere die Vereinsstruktur mitbearbeiten können.</p><Button onClick={() => setPasswordOpen(true)}>Passwort festlegen</Button></div>}
         {!access && <div className="py-20 text-center text-muted-foreground">{error ? <Button variant="outline" onClick={() => void perform(async () => setAccess(await request<Access>("/api/organization/access")))}>Erneut versuchen</Button> : "Zugang wird geprüft …"}</div>}
 
-        {access && !access.authenticated && <section className="mx-auto my-12 max-w-md rounded-xl border bg-card p-6 shadow-sm">
+        {access && !access.authenticated && <section className="mx-auto my-12 max-w-md rounded-xl border bg-card p-6 shadow-xs">
           <LockKeyhole className="mb-4 h-9 w-9 text-primary" /><h2 className="text-xl font-semibold">Gemeinsam den Verein gestalten</h2>
           <p className="mt-2 text-sm text-muted-foreground">Mit dem Organigramm-Passwort kannst du die Vereinsstruktur ansehen und bearbeiten.</p>
           {!access.configured ? <div className="mt-5 space-y-3"><p className="text-sm">Das Passwort muss zuerst im Adminbereich eingerichtet werden.</p><Button asChild><Link href="/admin/login?next=/admin/organigramm">Zum Admin-Login</Link></Button></div> : <form className="mt-5 space-y-4" onSubmit={(event: FormEvent) => { event.preventDefault(); void perform(async () => { await request("/api/organization/login", "POST", { password }); setPassword(""); setAccess(await request<Access>("/api/organization/access")); }); }}>
@@ -353,14 +375,14 @@ export default function OrganizationPage() {
         {access?.authenticated && chart && <>
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="w-full max-w-lg space-y-2"><Label htmlFor="organization-title">Titel des Organigramms</Label><Input id="organization-title" value={chart.title} maxLength={120} disabled={busy} onChange={(event) => { setChart({ ...chart, title: event.target.value }); setNotice(""); }} /></div>
-            <div className="flex flex-wrap items-center gap-3"><span aria-live="polite" className={`text-sm ${dirty ? "text-amber-700" : "text-muted-foreground"}`}>{dirty ? "Ungespeicherte Änderungen" : "Alle Änderungen gespeichert"}</span><Button disabled={busy || !dirty || !chart.title.trim() || chart.nodes.some((node) => !node.title.trim() || node.people.length > 20 || node.people.some((name) => name.trim().length > 100))} onClick={() => void perform(async () => { const saved = await request<OrganizationChart>("/api/organization/chart", "PUT", chart); setChart(saved); setBaseline(serialized(saved)); setFieldResetKey((key) => key + 1); setNotice("Organigramm gespeichert."); })}><Save className="mr-2 h-4 w-4" />{busy ? "Bitte warten …" : "Speichern"}</Button></div>
+            <div className="flex flex-wrap items-center gap-3"><span aria-live="polite" className={`text-sm ${dirty ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}`}>{dirty ? "Ungespeicherte Änderungen" : "Alle Änderungen gespeichert"}</span><Button disabled={saveDisabled} onClick={saveChart}><Save className="mr-2 h-4 w-4" />{busy ? "Bitte warten …" : "Speichern"}</Button></div>
           </div>
 
           <div className="space-y-4">
-            <section className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm" aria-label="Organigramm-Arbeitsfläche">
+            <section className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-xs" aria-label="Organigramm-Arbeitsfläche">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
-                <div className="flex flex-wrap gap-2"><Button size="sm" draggable={!busy && chart.nodes.length < 200} onDragStart={(event) => { event.dataTransfer.setData("application/x-tsv-role", "new"); event.dataTransfer.effectAllowed = "copy"; }} disabled={busy || chart.nodes.length >= 200} onClick={() => addNode()} title="Anklicken oder auf die Arbeitsfläche ziehen"><Plus className="mr-2 h-4 w-4" />Neue Rolle</Button><Button size="sm" variant="outline" disabled={busy || !chart.nodes.length} onClick={() => setConfirmAction("arrange")}><LayoutGrid className="mr-2 h-4 w-4" />Anordnen</Button></div>
-                <div className="flex items-center gap-1"><Button size="icon" variant="ghost" aria-label="Verkleinern" onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.1).toFixed(2)))}><ZoomOut className="h-4 w-4" /></Button><span className="min-w-10 text-center text-xs">{Math.round(zoom * 100)} %</span><Button size="icon" variant="ghost" aria-label="Vergrößern" onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}><ZoomIn className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={fitVisible}>Einpassen</Button></div>
+                <div className="flex flex-wrap gap-2"><Button size="sm" draggable={!busy && chart.nodes.length < 200} onDragStart={(event) => { event.dataTransfer.setData("application/x-tsv-role", "new"); event.dataTransfer.effectAllowed = "copy"; }} disabled={busy || chart.nodes.length >= 200} onClick={() => addNode()} title="Anklicken oder auf die Arbeitsfläche ziehen"><Plus className="mr-2 h-4 w-4" />Neue Rolle</Button><Button size="sm" variant="outline" className={listView ? "hidden" : ""} disabled={busy || !chart.nodes.length} onClick={() => setConfirmAction("arrange")}><LayoutGrid className="mr-2 h-4 w-4" />Anordnen</Button></div>
+                <div className="flex flex-wrap items-center gap-1"><div className="mr-1 flex rounded-lg border p-1" role="group" aria-label="Organigramm-Ansicht"><Button size="sm" variant={listView ? "default" : "ghost"} aria-pressed={listView} onClick={() => { cancelConnection(); setPreferredView("list"); }}><ListTree className="h-4 w-4" />Liste</Button><Button size="sm" variant={!listView ? "default" : "ghost"} aria-pressed={!listView} onClick={() => setPreferredView("diagram")}><GitBranch className="h-4 w-4" />Diagramm</Button></div>{!listView && <><Button size="icon" variant="ghost" aria-label="Verkleinern" onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.1).toFixed(2)))}><ZoomOut className="h-4 w-4" /></Button><span className="min-w-10 text-center text-xs">{Math.round(zoom * 100)} %</span><Button size="icon" variant="ghost" aria-label="Vergrößern" onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}><ZoomIn className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={fitVisible}>Einpassen</Button></>}</div>
               </div>
               <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
                 <Label htmlFor="org-visible-levels">Ebenen anzeigen</Label>
@@ -373,9 +395,26 @@ export default function OrganizationPage() {
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => chooseLevel("1")}>Alles einklappen</Button>
                 <p className="text-xs text-muted-foreground">Über den Pfeil an einer Rolle ihre Unterrollen einzeln ein- oder ausklappen.</p>
               </div>
-              <p className="border-b px-4 py-2 text-xs text-muted-foreground">Oben die Person, darunter Funktion und Aufgaben – direkt in der Kachel bearbeiten. Am Griff verschieben, über die Anschlüsse verbinden. Weitere Einstellungen findest du unter „Details“.</p>
+              <p className="border-b px-4 py-2 text-xs text-muted-foreground">{listView ? "Rollen und Personen in ihrer Hierarchie durchsehen. Mit „Bearbeiten“ öffnest du die Angaben und die Zuordnung. Zum Verschieben auf der Arbeitsfläche wähle „Diagramm“." : "Oben die Person, darunter Funktion und Aufgaben – direkt in der Kachel bearbeiten. Am Griff verschieben, über die Anschlüsse verbinden. Weitere Einstellungen findest du unter „Details“."}</p>
               {connection && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b bg-primary/5 px-4 py-2 text-sm"><span>Auf die Zielrolle ziehen oder ihren oberen Anschluss anklicken. Escape bricht ab.</span><Button size="sm" variant="ghost" onClick={cancelConnection}>Verbindung abbrechen</Button></div>}
-              <div ref={canvas}
+              {listView ? <div className="space-y-3 bg-muted/20 p-3 sm:p-4" aria-label="Rollenliste">
+                {!chart.nodes.length && <div className="space-y-3 py-8 text-center"><Users className="mx-auto h-10 w-10 text-primary/50" /><p>Noch keine Rollen vorhanden.</p><Button disabled={busy} onClick={() => addNode()}>Erste Rolle anlegen</Button><Button className="ml-2" variant="ghost" disabled={busy} onClick={() => setConfirmAction("sample")}>Fiktives Beispiel laden</Button></div>}
+                {orderedVisibleNodes.map(node => {
+                  const childCount = childCounts.get(node.id) ?? 0;
+                  const depth = depths.get(node.id) ?? 1;
+                  const parent = chart.nodes.find(item => item.id === node.parentId);
+                  return <article key={node.id} data-org-list-id={node.id} className={`min-w-0 rounded-xl border-l-4 bg-background p-4 text-slate-900 shadow-xs ${colors[node.color].card}`} style={{ marginLeft: Math.min(depth - 1, 2) * 12 }}>
+                    <p className="mb-2 wrap-anywhere text-xs text-slate-600">Ebene {depth}{parent ? ` · ${parent.title}` : " · Oberste Ebene"}</p>
+                    <h2 className="wrap-anywhere text-base font-semibold text-slate-900">{node.title || "Neue Rolle"}</h2>
+                    <p className="mt-1 whitespace-pre-line wrap-anywhere text-sm text-slate-700">{node.people.length ? node.people.join("\n") : "Noch keine Person zugeordnet"}</p>
+                    {node.description && <p className="mt-2 whitespace-pre-line wrap-anywhere text-sm text-slate-600">{node.description}</p>}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => openDetails(node.id)} aria-label={`${node.title} bearbeiten`}><Pencil className="h-4 w-4" />Bearbeiten</Button>
+                      {childCount > 0 && <Button size="sm" variant="outline" disabled={busy} aria-expanded={!collapsedIds.has(node.id)} onClick={() => toggleBranch(node.id)} aria-label={`Unterrollen von ${node.title} ${collapsedIds.has(node.id) ? "ausklappen" : "einklappen"}`}>{collapsedIds.has(node.id) ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}{childCount} Unterrollen</Button>}
+                    </div>
+                  </article>;
+                })}
+              </div> : <div ref={canvas}
                 onPointerMove={(event) => { if (connectionRef.current && !connectionRef.current.dragging) moveConnection(event); }}
                 onDragOver={(event) => { if (!busy && event.dataTransfer.types.includes("application/x-tsv-role")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
                 onDrop={(event) => { if (event.dataTransfer.getData("application/x-tsv-role") !== "new") return; event.preventDefault(); const point = canvasPoint(event.clientX, event.clientY); addNode(null, { x: clamp(point.x - 125), y: clamp(point.y - 40) }); }}
@@ -395,7 +434,7 @@ export default function OrganizationPage() {
                     return <ContextMenu key={node.id} onOpenChange={(open) => { if (open) { setSelectedId(node.id); cancelConnection(); } }}>
                       <ContextMenuTrigger asChild>
                         <div data-org-node-id={node.id}
-                          className={`absolute flex h-[200px] w-[250px] flex-col rounded-xl border-2 shadow-sm ${colors[node.color].card} ${connection?.targetId === node.id && validTarget ? "ring-4 ring-primary" : selectedId === node.id ? "ring-2 ring-primary ring-offset-2" : ""}`}
+                          className={`absolute flex h-[200px] w-[250px] flex-col rounded-xl border-2 shadow-xs ${colors[node.color].card} ${connection?.targetId === node.id && validTarget ? "ring-4 ring-primary" : selectedId === node.id ? "ring-2 ring-primary ring-offset-2" : ""}`}
                           style={{ left: node.x, top: node.y }}>
                           <button type="button" aria-label={`Mit ${node.title} verbinden`} title="Ziel einer Verbindung" disabled={busy || !connection || !validTarget}
                             className="absolute -top-3 left-1/2 z-10 flex h-6 w-8 -translate-x-1/2 items-center justify-center rounded-full border-2 border-green-600 bg-white text-green-700 disabled:opacity-50"
@@ -405,7 +444,7 @@ export default function OrganizationPage() {
                             <button type="button" aria-label={`${node.title} verschieben`} title="Kachel verschieben" disabled={busy}
                               className="flex h-full flex-1 touch-none cursor-grab items-center justify-center active:cursor-grabbing"
                               onPointerDown={(event) => beginDrag(event, node)} onPointerMove={moveDrag} onPointerUp={stopDrag} onPointerCancel={stopDrag} onLostPointerCapture={stopDrag}><GripHorizontal className="h-4 w-4" /></button>
-                            {childCount > 0 && <button type="button" disabled={busy} aria-expanded={!collapsed} aria-label={`Unterrollen von ${node.title} ${collapsed ? "ausklappen" : "einklappen"}`} title={`${childCount} direkte Unterrollen ${collapsed ? "anzeigen" : "ausblenden"}`} className="flex items-center gap-0.5 rounded px-1 py-1 hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" onClick={() => toggleBranch(node.id)}>
+                            {childCount > 0 && <button type="button" disabled={busy} aria-expanded={!collapsed} aria-label={`Unterrollen von ${node.title} ${collapsed ? "ausklappen" : "einklappen"}`} title={`${childCount} direkte Unterrollen ${collapsed ? "anzeigen" : "ausblenden"}`} className="flex items-center gap-0.5 rounded px-1 py-1 hover:bg-black/5 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-primary" onClick={() => toggleBranch(node.id)}>
                               {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}<span className="text-xs">{childCount}</span>
                             </button>}
                             <button type="button" aria-label={`${node.title} löschen`} title="Löschen" disabled={busy} className="rounded p-1 text-red-700 hover:bg-red-100" onClick={() => confirmDelete(node.id)}><Trash2 className="h-4 w-4" /></button>
@@ -415,7 +454,7 @@ export default function OrganizationPage() {
                               onSelect={() => { setSelectedId(node.id); if (detailsId !== node.id) setDetailsId(null); cancelConnection(); }}
                               onPatch={(patch) => patchNode(node.id, patch)} />
                             <button type="button" disabled={busy} aria-expanded={detailsId === node.id} aria-controls={detailsId === node.id ? "organization-details" : undefined}
-                              className="mt-auto flex shrink-0 items-center justify-between rounded px-1 py-1 text-xs text-slate-700 hover:bg-white/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                              className="mt-auto flex shrink-0 items-center justify-between rounded px-1 py-1 text-xs text-slate-700 hover:bg-white/60 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-primary"
                               onClick={() => { if (detailsId === node.id) setDetailsId(null); else openDetails(node.id); }}>
                               <span>Weitere Details</span>{detailsId === node.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                             </button>
@@ -443,27 +482,29 @@ export default function OrganizationPage() {
                     </ContextMenu>;
                   })}
                 </div></div>}
-              </div>
+              </div>}
               <div className="flex flex-wrap justify-between gap-2 border-t px-4 py-2 text-xs text-muted-foreground"><span aria-live="polite">{visibleNodes.length} von {chart.nodes.length} Rollen sichtbar · {chart.nodes.length} / 200 Rollen · {chart.nodes.filter((node) => !node.parentId).length} oberste Rollen</span><span>Ein-/Ausklappen ändert nur deine Ansicht. Positionen und Inhalte mit „Speichern“ übernehmen.</span></div>
             </section>
 
-            {detailsNode && <section id="organization-details" className="rounded-xl border bg-card p-4 shadow-sm md:p-6" aria-label="Erweiterte Rollendetails">
+            {detailsNode && <section id="organization-details" className="scroll-mt-4 rounded-xl border bg-card p-4 shadow-xs md:p-6" aria-label="Erweiterte Rollendetails">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><h2 className="font-semibold">Details · {detailsNode.title || "Unbenannte Rolle"}</h2><p className="mt-1 text-sm text-muted-foreground">Aufgaben, Zuordnung und Darstellung dieser Rolle.</p></div>
                 <Button variant="ghost" size="sm" onClick={() => setDetailsId(null)}><ChevronUp className="mr-2 h-4 w-4" />Details schließen</Button>
               </div>
-              <fieldset disabled={busy} className="mt-4 grid gap-4 md:grid-cols-2">
+              <fieldset disabled={busy} className="mt-4 grid min-w-0 gap-4 md:grid-cols-2">
+                {listView && <div className="min-w-0 md:col-span-2"><OrganizationRoleFields node={detailsNode} disabled={busy} resetKey={fieldResetKey} roomy onSelect={() => setSelectedId(detailsNode.id)} onPatch={patch => patchNode(detailsNode.id, patch)} /></div>}
                 <div className="space-y-2"><Label htmlFor="org-role-parent">Übergeordnete Rolle</Label><select id="org-role-parent" className={nativeSelect} value={detailsNode.parentId || ""} onChange={(event) => patchNode(detailsNode.id, { parentId: event.target.value || null })}><option value="">Keine · oberste Ebene</option>{chart.nodes.filter((node) => !forbiddenParents.has(node.id)).map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}</select><p className="text-xs text-muted-foreground">Eigene Unterrollen sind ausgeschlossen, damit kein Kreis entsteht.</p></div>
-                <div className="space-y-2"><Label htmlFor="org-role-description">Aufgaben & Notizen</Label><Textarea id="org-role-description" rows={3} value={detailsNode.description} maxLength={2000} onChange={(event) => patchNode(detailsNode.id, { description: event.target.value })} /></div>
+                {!listView && <div className="space-y-2"><Label htmlFor="org-role-description">Aufgaben & Notizen</Label><Textarea id="org-role-description" rows={3} value={detailsNode.description} maxLength={2000} onChange={(event) => patchNode(detailsNode.id, { description: event.target.value })} /></div>}
                 <div className="space-y-2"><Label htmlFor="org-role-color">Kartenfarbe</Label><select id="org-role-color" className={nativeSelect} value={detailsNode.color} onChange={(event) => patchNode(detailsNode.id, { color: event.target.value as OrganizationNode["color"] })}>{Object.entries(colors).map(([key, color]) => <option key={key} value={key}>{color.label}</option>)}</select></div>
-                <div><p className="mb-2 text-sm font-medium">Position auf der Arbeitsfläche</p><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label htmlFor="org-role-x">Horizontal (X)</Label><Input id="org-role-x" type="number" min={0} max={100000} value={detailsNode.x} onChange={(event) => patchNode(detailsNode.id, { x: clamp(Number(event.target.value)) })} /></div><div className="space-y-2"><Label htmlFor="org-role-y">Vertikal (Y)</Label><Input id="org-role-y" type="number" min={0} max={100000} value={detailsNode.y} onChange={(event) => patchNode(detailsNode.id, { y: clamp(Number(event.target.value)) })} /></div></div></div>
-                <Button className="w-full" variant="outline" disabled={chart.nodes.length >= 200} onClick={() => addNode(detailsNode.id)}><Plus className="mr-2 h-4 w-4" />Unterrolle hinzufügen</Button><Button className="w-full text-destructive" variant="outline" onClick={() => confirmDelete(detailsNode.id)}><Trash2 className="mr-2 h-4 w-4" />Rolle entfernen</Button>
+                {!listView && <div><p className="mb-2 text-sm font-medium">Position auf der Arbeitsfläche</p><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label htmlFor="org-role-x">Horizontal (X)</Label><Input id="org-role-x" type="number" min={0} max={100000} value={detailsNode.x} onChange={(event) => patchNode(detailsNode.id, { x: clamp(Number(event.target.value)) })} /></div><div className="space-y-2"><Label htmlFor="org-role-y">Vertikal (Y)</Label><Input id="org-role-y" type="number" min={0} max={100000} value={detailsNode.y} onChange={(event) => patchNode(detailsNode.id, { y: clamp(Number(event.target.value)) })} /></div></div></div>}
+                <Button className="w-full" variant="outline" disabled={chart.nodes.length >= 200} onClick={() => addNode(detailsNode.id)}><Plus className="mr-2 h-4 w-4" />Unterrolle hinzufügen</Button><Button className="w-full text-destructive dark:text-red-400" variant="outline" onClick={() => confirmDelete(detailsNode.id)}><Trash2 className="mr-2 h-4 w-4" />Rolle entfernen</Button>
               </fieldset>
             </section>}
 
           </div>
         </>}
       </main>
+      {access?.authenticated && chart && dirty && <div className="fixed inset-x-0 bottom-0 z-20 flex items-center justify-between gap-3 border-t bg-background/95 p-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg backdrop-blur-sm sm:hidden"><span role="status" className="text-xs font-medium text-amber-800 dark:text-amber-300">Ungespeicherte Änderungen</span><Button disabled={saveDisabled} onClick={saveChart}><Save className="h-4 w-4" />Speichern</Button></div>}
 
       <Dialog open={canManageAccess && passwordOpen} onOpenChange={(open) => { if (!busy) { setPasswordOpen(open); setNewPassword(""); } }}><DialogContent><DialogHeader><DialogTitle>Organigramm-Zugang verwalten</DialogTitle><DialogDescription>Ein separates gemeinsames Passwort gibt Zugriff auf das Organigramm. Es gewährt keinen Zugang zu anderen Adminfunktionen. Teile es nur mit Personen, die alles im Organigramm bearbeiten dürfen.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void perform(async () => { await request("/api/admin/organization/password", "PUT", { password: newPassword }); setPasswordOpen(false); setNewPassword(""); setAccess(await request<Access>("/api/organization/access")); setNotice("Organigramm-Passwort gespeichert."); }); }}><div className="space-y-2"><Label htmlFor="org-new-password">Neues gemeinsames Passwort</Label><Input id="org-new-password" autoComplete="new-password" type="password" minLength={8} maxLength={200} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /><p className="text-xs text-muted-foreground">Mindestens 8 Zeichen.</p></div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button type="submit" disabled={busy || newPassword.length < 8}>Passwort speichern</Button></DialogFooter></form></DialogContent></Dialog>
       <Dialog open={confirmAction !== null} onOpenChange={(open) => { if (!open) setConfirmAction(null); }}><DialogContent><DialogHeader><DialogTitle>{confirmAction === "delete" ? `„${roleToDelete?.title || "Rolle"}“ entfernen?` : confirmAction === "reload" ? "Aktuellen Stand neu laden?" : confirmAction === "arrange" ? "Automatisch anordnen?" : "Fiktives Beispiel laden?"}</DialogTitle><DialogDescription>{confirmAction === "delete" ? "Die Personen und Angaben dieser Rolle werden entfernt. Ihre Unterrollen bleiben erhalten und rücken an die übergeordnete Rolle, bei einer obersten Rolle an die Spitze." : confirmAction === "reload" ? "Deine ungespeicherten Änderungen werden verworfen und durch den zuletzt gespeicherten Stand ersetzt." : confirmAction === "arrange" ? "Die Rollen werden als Pyramide von oben nach unten angeordnet. Mehrere Spitzen bleiben gleichberechtigt. Deine individuellen Kartenpositionen werden ersetzt." : "Die aktuelle Struktur wird durch vier fiktive Beispielrollen mit einer dreiköpfigen Leitung ersetzt. Das Beispiel wird erst mit Speichern dauerhaft übernommen."}</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setConfirmAction(null)}>Abbrechen</Button><Button variant={confirmAction === "delete" || confirmAction === "reload" ? "destructive" : "default"} onClick={runConfirmedAction}> {confirmAction === "delete" ? "Rolle entfernen" : confirmAction === "reload" ? "Neu laden und verwerfen" : confirmAction === "arrange" ? "Jetzt anordnen" : "Beispiel übernehmen"}</Button></DialogFooter></DialogContent></Dialog>

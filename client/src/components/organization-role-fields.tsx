@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { OrganizationNode } from "@shared/organization";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 
 type OrganizationRoleFieldsProps = {
@@ -9,9 +10,10 @@ type OrganizationRoleFieldsProps = {
   onSelect: () => void;
   onPatch: (patch: Partial<OrganizationNode>) => void;
   resetKey: number;
+  roomy?: boolean;
 };
 
-export function OrganizationRoleFields({ node, disabled, onSelect, onPatch, resetKey }: OrganizationRoleFieldsProps) {
+export function OrganizationRoleFields({ node, disabled, onSelect, onPatch, resetKey, roomy = false }: OrganizationRoleFieldsProps) {
   const [peopleDraft, setPeopleDraft] = useState(() => node.people.join("\n"));
 
   // Keep the raw text while typing: a trailing newline is needed to enter the next person.
@@ -28,16 +30,18 @@ export function OrganizationRoleFields({ node, disabled, onSelect, onPatch, rese
       ? "Namen dürfen höchstens 100 Zeichen haben."
       : "";
   const errorId = `org-inline-error-${node.id}`;
+  const fieldColors = roomy ? "text-foreground placeholder:text-muted-foreground" : "text-slate-900! placeholder:text-slate-500!";
   const error = titleError ? "Bitte einen Rollennamen eingeben." : peopleError;
 
   return (
-    <div className="min-h-0 space-y-1" onContextMenu={(event) => event.stopPropagation()}>
+    <div className={roomy ? "space-y-4" : "min-h-0 space-y-1"} onContextMenu={(event) => event.stopPropagation()}>
+      {roomy && <label className="block text-sm font-medium" htmlFor={`org-inline-people-${node.id}`}>Personen – ein Name je Zeile</label>}
       <Textarea
         id={`org-inline-people-${node.id}`}
         aria-label="Personen – ein Name je Zeile"
         aria-invalid={Boolean(peopleError)}
         aria-describedby={peopleError ? errorId : undefined}
-        rows={1}
+        rows={roomy ? 3 : 1}
         value={peopleDraft}
         disabled={disabled}
         onFocus={onSelect}
@@ -47,8 +51,9 @@ export function OrganizationRoleFields({ node, disabled, onSelect, onPatch, rese
           onPatch({ people: value.split("\n").filter((name) => name.trim()) });
         }}
         placeholder="Name der Person"
-        className="h-9 min-h-0 resize-none border-transparent bg-transparent px-1 py-0.5 text-lg font-medium leading-7 hover:border-slate-400/50 !text-slate-900 placeholder:!text-slate-500 focus-visible:border-green-700 focus-visible:ring-green-700"
+        className={cn("text-lg font-medium leading-7 focus-visible:border-green-700 focus-visible:ring-green-700", fieldColors, roomy ? "min-h-24 resize-y border-input bg-background p-3" : "h-9 min-h-0 max-md:min-h-0 resize-none border-transparent bg-transparent px-1 py-0.5 hover:border-slate-400/50")}
       />
+      {roomy && <label className="block text-sm font-medium" htmlFor={`org-inline-title-${node.id}`}>Funktion / Ebene</label>}
       <Input
         id={`org-inline-title-${node.id}`}
         aria-label="Funktion oder Ebene"
@@ -60,21 +65,22 @@ export function OrganizationRoleFields({ node, disabled, onSelect, onPatch, rese
         onFocus={onSelect}
         onChange={(event) => onPatch({ title: event.target.value })}
         placeholder="Funktion / Ebene"
-        className="h-6 border-transparent bg-transparent px-1 py-0 text-sm font-bold hover:border-slate-400/50 !text-slate-900 placeholder:!text-slate-500 focus-visible:border-green-700 focus-visible:ring-green-700"
+        className={cn("font-bold focus-visible:border-green-700 focus-visible:ring-green-700", fieldColors, roomy ? "min-h-11 border-input bg-background px-3 text-base" : "h-6 max-md:min-h-0 border-transparent bg-transparent px-1 py-0 text-sm hover:border-slate-400/50")}
       />
+      {roomy && <label className="block text-sm font-medium" htmlFor={`org-inline-description-${node.id}`}>Aufgaben / Zuständigkeiten</label>}
       <Textarea
         id={`org-inline-description-${node.id}`}
         aria-label="Aufgaben und Zuständigkeiten"
-        rows={2}
+        rows={roomy ? 4 : 2}
         value={node.description}
         maxLength={2000}
         disabled={disabled}
         onFocus={onSelect}
         onChange={(event) => onPatch({ description: event.target.value })}
         placeholder="Aufgaben / Zuständigkeiten"
-        className="h-10 min-h-0 resize-none border-transparent bg-transparent px-1 py-0.5 text-xs !text-slate-700 placeholder:!text-slate-500 hover:border-slate-400/50 focus-visible:border-green-700 focus-visible:ring-green-700"
+        className={cn("focus-visible:border-green-700 focus-visible:ring-green-700", fieldColors, roomy ? "min-h-24 resize-y border-input bg-background p-3 text-base" : "h-10 min-h-0 resize-none border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-slate-400/50")}
       />
-      {error && <p id={errorId} role="alert" title={error} className="truncate text-[10px] leading-tight !text-red-800">{error}</p>}
+      {error && <p id={errorId} role="alert" title={error} className="wrap-anywhere text-xs leading-tight text-red-800!">{error}</p>}
     </div>
   );
 }

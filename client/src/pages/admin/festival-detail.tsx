@@ -61,8 +61,8 @@ export default function FestivalDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
         <Link href="/admin/festivals">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-1" /> Zurück
@@ -80,7 +80,7 @@ export default function FestivalDetailPage() {
       </div>
 
       <Tabs defaultValue="stations">
-        <TabsList>
+        <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
           <TabsTrigger value="stations">Stände</TabsTrigger>
           <TabsTrigger value="shifts">Schichten</TabsTrigger>
           <TabsTrigger value="overview">Übersicht</TabsTrigger>
@@ -165,7 +165,7 @@ function StationsTab({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-end border rounded-md p-3 bg-muted/30">
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 break-words">
             <Label htmlFor="station-name">Neuer Stand</Label>
             <Input
               id="station-name"
@@ -174,7 +174,7 @@ function StationsTab({
               onChange={(e) => setNewName(e.target.value)}
             />
           </div>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 break-words">
             <Label htmlFor="station-desc">Beschreibung (optional)</Label>
             <Input
               id="station-desc"
@@ -202,18 +202,18 @@ function StationsTab({
         ) : (
           <ul className="divide-y rounded-md border">
             {festival.stations.map((s) => (
-              <li key={s.id} className="p-3 flex items-center gap-3">
+              <li key={s.id} className="p-3 flex flex-wrap items-center gap-3 [&>input]:min-w-0 [&>input]:basis-full sm:[&>input]:basis-0">
                 {editingId === s.id ? (
                   <>
                     <Input
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      className="flex-1"
+                      className="min-w-0 flex-1 break-words"
                     />
                     <Input
                       value={editDescription}
                       onChange={(e) => setEditDescription(e.target.value)}
-                      className="flex-1"
+                      className="min-w-0 flex-1 break-words"
                       placeholder="Beschreibung"
                     />
                     <Button
@@ -233,14 +233,14 @@ function StationsTab({
                   </>
                 ) : (
                   <>
-                    <div className="flex-1">
+                    <div className="min-w-0 flex-1 break-words">
                       <div className="font-medium">{s.name}</div>
                       {s.description && <div className="text-sm text-muted-foreground">{s.description}</div>}
                     </div>
-                    <Button size="icon" variant="ghost" onClick={() => startEdit(s)}>
+                    <Button size="icon" variant="ghost" aria-label={`${s.name} bearbeiten`} onClick={() => startEdit(s)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeletingId(s.id)}>
+                    <Button size="icon" variant="ghost" aria-label={`${s.name} löschen`} onClick={() => setDeletingId(s.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </>
@@ -359,7 +359,7 @@ function ShiftsTab({
   }, [festival.signups]);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Schichten erzeugen</CardTitle>
@@ -402,7 +402,7 @@ function ShiftsTab({
                 Lege im Tab „Stände" zuerst mindestens einen Stand an.
               </p>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2 border rounded-md p-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-2 border rounded-md p-3">
                 {festival.stations.map((s) => (
                   <label key={s.id} className="flex items-center gap-2 cursor-pointer">
                     <Checkbox
@@ -453,8 +453,8 @@ function ShiftsTab({
                       {shifts.map((sh) => {
                         const count = signupCountByShift.get(sh.id) ?? 0;
                         return (
-                          <li key={sh.id} className="flex items-center gap-3 p-2 text-sm">
-                            <div className="flex-1">
+                          <li key={sh.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
+                            <div className="min-w-0 flex-1 break-words">
                               {format(parseISO(sh.startTime), "EEE dd.MM HH:mm", { locale: de })} –{" "}
                               {format(parseISO(sh.endTime), "HH:mm", { locale: de })}
                             </div>
@@ -581,13 +581,13 @@ function OverviewTab({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <CardTitle>Belegungs-Übersicht</CardTitle>
         <Button variant="outline" size="sm" onClick={downloadCsv}>
           <Download className="h-4 w-4 mr-1" /> CSV exportieren
         </Button>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="min-w-0 overflow-x-auto" role="region" aria-label="Schichtübersicht, horizontal scrollbar" tabIndex={0}><p className="mb-3 text-xs text-muted-foreground sm:hidden">Nach links und rechts wischen, um alle Stände zu sehen.</p>
         <table className="border-separate border-spacing-1 text-xs min-w-full">
           <thead>
             <tr>

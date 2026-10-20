@@ -117,13 +117,13 @@ export function MobileFieldCalendar({
         {/* Obere Leiste: Platz-Toggle + Heute */}
         <div className="flex items-center justify-between mb-3">
           <div
-            className="inline-flex rounded-lg border bg-background shadow-sm"
+            className="inline-flex rounded-lg border bg-background shadow-xs"
             role="group"
             aria-label="Platz wählen"
           >
             <button
               type="button"
-              className={`px-4 py-2 text-sm font-medium rounded-l-lg border-r transition-colors ${
+              className={`min-h-11 px-4 py-2 text-sm font-medium rounded-l-lg border-r transition-colors ${
                 fieldView === "a"
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted"
@@ -134,7 +134,7 @@ export function MobileFieldCalendar({
             </button>
             <button
               type="button"
-              className={`px-4 py-2 text-sm font-medium rounded-r-lg transition-colors ${
+              className={`min-h-11 px-4 py-2 text-sm font-medium rounded-r-lg transition-colors ${
                 fieldView === "b"
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted"
@@ -157,7 +157,7 @@ export function MobileFieldCalendar({
         <div className="flex items-center justify-between mb-2 px-1">
           <button
             type="button"
-            className="p-2 rounded-full hover:bg-muted active:bg-muted/80"
+            className="flex h-11 w-11 items-center justify-center p-2 rounded-full hover:bg-muted active:bg-muted/80"
             onClick={prevMonth}
             aria-label="Vorheriger Monat"
           >
@@ -168,7 +168,7 @@ export function MobileFieldCalendar({
           </h3>
           <button
             type="button"
-            className="p-2 rounded-full hover:bg-muted active:bg-muted/80"
+            className="flex h-11 w-11 items-center justify-center p-2 rounded-full hover:bg-muted active:bg-muted/80"
             onClick={nextMonth}
             aria-label="Nächster Monat"
           >
@@ -177,7 +177,7 @@ export function MobileFieldCalendar({
         </div>
 
         {/* Kalenderraster */}
-        <div className="border rounded-2xl bg-card overflow-hidden shadow-sm">
+        <div className="border rounded-2xl bg-card overflow-hidden shadow-xs">
           <div className="grid grid-cols-7 border-b bg-muted/20">
             {WEEKDAYS.map((d) => (
               <div
@@ -264,7 +264,7 @@ export function MobileFieldCalendar({
                   className={`flex items-start gap-3 p-3 rounded-xl border bg-card shadow-sm${event.isPending ? " border-dashed border-amber-400/70" : ""}`}
                 >
                   <span
-                    className={`w-3 h-3 rounded-full mt-0.5 flex-shrink-0 ${bgClass}`}
+                    className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${bgClass}`}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

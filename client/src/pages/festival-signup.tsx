@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -39,7 +40,7 @@ import { de } from "date-fns/locale";
 
 type FestivalDetails = Festival & {
   stations: FestivalStation[];
-  shifts: Array<FestivalShift & { signedUpCount: number }>;
+  shifts: Array<FestivalShift & { signedUpCount: number; signedUpNames?: string[] }>;
 };
 
 const signupFormSchema = z.object({
@@ -51,6 +52,8 @@ type SignupFormValues = z.infer<typeof signupFormSchema>;
 export default function FestivalSignupPage() {
   const { festivalId } = useParams<{ festivalId: string }>();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
+  const [mobileStationId, setMobileStationId] = useState("");
 
   const passwordKey = `festival_password_${festivalId}`;
   const [enteredPassword, setEnteredPassword] = useState<string | null>(() => {
@@ -135,7 +138,7 @@ export default function FestivalSignupPage() {
   }, [data]);
 
   const shiftLookup = useMemo(() => {
-    const m = new Map<string, FestivalShift & { signedUpCount: number }>();
+    const m = new Map<string, FestivalShift & { signedUpCount: number; signedUpNames?: string[] }>();
     if (!data) return m;
     for (const sh of data.shifts) m.set(`${sh.stationId}__${sh.startTime}__${sh.endTime}`, sh);
     return m;
@@ -215,6 +218,12 @@ export default function FestivalSignupPage() {
   }
 
   const hasShifts = data.shifts.length > 0;
+  const selectedStation = data.stations.find(station => station.id === mobileStationId) ?? data.stations[0];
+  const visibleStations = data.stations;
+  const selectedStationShifts = data.shifts
+    .filter(shift => shift.stationId === selectedStation?.id)
+    .slice()
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-6">
@@ -226,7 +235,7 @@ export default function FestivalSignupPage() {
             </Button>
           </Link>
         </div>
-        <h1 className="text-3xl font-bold">{data.name}</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold wrap-anywhere">{data.name}</h1>
         <div className="flex flex-wrap gap-3 text-muted-foreground mt-1">
           <span className="flex items-center gap-1">
             <CalendarDays className="h-4 w-4" />
@@ -252,7 +261,45 @@ export default function FestivalSignupPage() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="p-2 sm:p-4 overflow-x-auto">
+          {isMobile && data.stations.length > 0 && <div className="space-y-2 p-4 pb-0"><label htmlFor="festival-station" className="text-sm font-medium">Stand auswählen</label><select id="festival-station" className="min-h-11 w-full min-w-0 rounded-md border bg-background px-3 text-base" value={selectedStation?.id ?? ""} onChange={event => setMobileStationId(event.target.value)}>{data.stations.map(station => <option key={station.id} value={station.id}>{station.name}</option>)}</select><p className="text-sm text-muted-foreground">Wähle deinen Stand und anschließend eine freie Schicht.</p>{selectedStation?.description && <p className="text-sm wrap-anywhere">{selectedStation.description}</p>}</div>}
+          <CardContent className="min-w-0 p-4 overflow-x-auto">
+            {isMobile ? (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold wrap-anywhere">Schichten · {selectedStation?.name ?? "Kein Stand verfügbar"}</h2>
+                {selectedStationShifts.length === 0 ? (
+                  <p className="rounded-lg border bg-muted/40 p-4 text-sm">Für diesen Stand sind noch keine Schichten geplant. Wähle einen anderen Stand.</p>
+                ) : selectedStationShifts.map(shift => {
+                  const count = shift.signedUpCount;
+                  const full = count >= shift.requiredHelpers;
+                  const alreadyDone = doneShiftIds.has(shift.id);
+                  const free = Math.max(0, shift.requiredHelpers - count);
+                  const names = shift.signedUpNames ?? [];
+                  return (
+                    <article key={shift.id} className={`min-w-0 space-y-4 rounded-xl border-2 bg-background p-4 ${alreadyDone || full ? "border-green-500/60" : count > 0 ? "border-amber-500/60" : "border-primary/50"}`} data-testid={`mobile-shift-${shift.id}`}>
+                      <div>
+                        <h3 className="text-base font-semibold">{format(parseISO(shift.startTime), "EEEE, dd. MMMM", { locale: de })}</h3>
+                        <p className="mt-1 text-xl font-bold">{format(parseISO(shift.startTime), "HH:mm", { locale: de })}–{format(parseISO(shift.endTime), "HH:mm", { locale: de })} Uhr</p>
+                        {shift.startTime.slice(0, 10) !== shift.endTime.slice(0, 10) && <p className="text-sm text-muted-foreground">bis {format(parseISO(shift.endTime), "EEEE, dd. MMMM", { locale: de })}</p>}
+                      </div>
+                      <p className="text-sm font-medium">{count} von {shift.requiredHelpers} Helfern · {free === 0 ? "Voll besetzt" : `${free} ${free === 1 ? "Platz frei" : "Plätze frei"}`}</p>
+                      {names.length > 0 && (
+                        <div className="rounded-lg bg-muted/50 p-3">
+                          <p className="mb-2 text-sm font-semibold">Schon dabei</p>
+                          <ul className="space-y-1 text-sm leading-relaxed">{names.map((name, index) => <li key={index} className="wrap-anywhere">{name}</li>)}</ul>
+                        </div>
+                      )}
+                      {alreadyDone ? (
+                        <p className="flex items-center gap-2 text-sm font-semibold text-green-800 dark:text-green-300" role="status"><Check className="h-5 w-5 shrink-0" aria-hidden="true" />Du bist für diese Schicht eingetragen</p>
+                      ) : full ? (
+                        <p className="rounded-lg bg-green-100 p-3 text-sm font-medium text-green-900 dark:bg-green-950 dark:text-green-200">Alle Plätze sind belegt. Danke an alle Helfer!</p>
+                      ) : (
+                        <Button className="min-h-12 w-full text-sm" onClick={() => setOpenShift({ shift, stationName: selectedStation!.name })} data-testid={`button-mobile-shift-${shift.id}`}><Plus className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />Für diese Schicht eintragen</Button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : <>
             <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <span className="inline-block h-3 w-3 rounded border bg-red-100 dark:bg-red-950 border-red-300" />
@@ -271,8 +318,8 @@ export default function FestivalSignupPage() {
               <thead>
                 <tr>
                   <th className="text-left p-2 sticky left-0 top-0 bg-background z-20">Zeit</th>
-                  {data.stations.map((station) => (
-                    <th key={station.id} className="p-2 text-left whitespace-nowrap sticky top-0 bg-background z-10">
+                  {visibleStations.map((station) => (
+                    <th key={station.id} className="p-2 text-left max-w-44 wrap-anywhere sticky top-0 bg-background z-10">
                       <div>{station.name}</div>
                       {station.description && (
                         <div className="text-muted-foreground font-normal text-[11px]">
@@ -293,7 +340,7 @@ export default function FestivalSignupPage() {
                         {format(parseISO(col.end), "HH:mm", { locale: de })}
                       </div>
                     </td>
-                    {data.stations.map((station) => {
+                    {visibleStations.map((station) => {
                       const shift = shiftLookup.get(`${station.id}__${col.start}__${col.end}`);
                       if (!shift) {
                         return (
@@ -320,9 +367,9 @@ export default function FestivalSignupPage() {
                             <div className="font-semibold whitespace-nowrap text-center">
                               {count}/{shift.requiredHelpers}
                             </div>
-                            {shift.signedUpNames.length > 0 && (
+                            {(shift.signedUpNames ?? []).length > 0 && (
                               <ul className="text-[11px] leading-tight space-y-0.5">
-                                {shift.signedUpNames.map((name, i) => (
+                                {(shift.signedUpNames ?? []).map((name, i) => (
                                   <li key={i} className="truncate" title={name}>
                                     • {name}
                                   </li>
@@ -354,6 +401,7 @@ export default function FestivalSignupPage() {
                 ))}
               </tbody>
             </table>
+            </>}
           </CardContent>
         </Card>
       )}

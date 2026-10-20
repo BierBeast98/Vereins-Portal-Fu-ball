@@ -569,7 +569,7 @@ export default function OrderFormPage() {
                     cart.map((item, index) => (
                       <div
                         key={index}
-                        className="flex items-start justify-between gap-2 p-3 bg-muted/50 rounded-md"
+                        className="flex flex-col sm:flex-row items-start justify-between gap-3 p-3 bg-muted/50 rounded-md"
                       >
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm truncate">{item.productName}</p>
@@ -653,7 +653,7 @@ export default function OrderFormPage() {
               Startseite
             </Link>
             <span className="text-muted-foreground/50">|</span>
-            <Link href="/admin/products" className="text-sm hover:underline flex items-center gap-1" data-testid="link-admin">
+            <Link href="/admin" className="text-sm hover:underline flex items-center gap-1" data-testid="link-admin">
               <Lock className="h-4 w-4" />
               Admin-Bereich
             </Link>
@@ -698,7 +698,7 @@ function ProductCard({ product, onAddToCart }: ProductCardProps) {
   return (
     <Card data-testid={`product-${product.id}`}>
       <div className="md:flex">
-        <div className="md:w-48 md:h-48 aspect-square bg-muted flex items-center justify-center flex-shrink-0">
+        <div className="md:w-48 md:h-48 aspect-square bg-muted flex items-center justify-center shrink-0">
           {product.imageUrl ? (
             <img
               src={product.imageUrl}

@@ -120,17 +120,17 @@ export default function OrdersPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Bestellungen</h1>
           <p className="text-muted-foreground">
             Übersicht aller eingegangenen Sammelbestellungen
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
           <Select value={selectedCampaign} onValueChange={setSelectedCampaign}>
-            <SelectTrigger className="w-64" data-testid="select-campaign-filter">
+            <SelectTrigger className="w-full sm:w-64" data-testid="select-campaign-filter">
               <SelectValue placeholder="Kampagne auswählen" />
             </SelectTrigger>
             <SelectContent>
@@ -199,7 +199,7 @@ export default function OrdersPage() {
           <CardContent className="p-6">
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="flex items-center gap-4">
+                <div key={i} className="flex flex-wrap items-center gap-4">
                   <Skeleton className="h-12 w-12 rounded-full" />
                   <div className="space-y-2 flex-1">
                     <Skeleton className="h-4 w-1/4" />
@@ -223,17 +223,17 @@ export default function OrdersPage() {
               {filteredOrders.map((order) => (
                 <AccordionItem key={order.id} value={order.id}>
                   <AccordionTrigger className="hover:no-underline" data-testid={`order-${order.id}`}>
-                    <div className="flex items-center gap-4 text-left w-full pr-4">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                    <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-left pr-2 sm:flex sm:items-center sm:gap-4 sm:pr-4">
+                      <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 sm:flex">
                         <User className="h-5 w-5 text-primary" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium">
+                        <div className="font-medium break-words">
                           {order.firstName} {order.lastName}
                         </div>
                         <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Mail className="h-3 w-3" />
+                          <span className="flex min-w-0 items-start gap-1 break-all">
+                            <Mail className="mt-1 h-3 w-3 shrink-0" />
                             {order.email}
                           </span>
                           <span className="flex items-center gap-1">
@@ -252,7 +252,17 @@ export default function OrdersPage() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="pt-4">
-                      <Table>
+                      <div className="space-y-3 sm:hidden">
+                        {order.items.map((item, idx) => (
+                          <div key={idx} className="rounded-lg border p-3 space-y-2 text-sm">
+                            <p className="font-medium break-words">{item.productName}</p>
+                            <p className="text-muted-foreground break-words">{item.category} · Größe {item.size}</p>
+                            {item.withInitials && <p className="break-words">Initialien: {item.initialsText}</p>}
+                            <div className="flex flex-wrap justify-between gap-2"><span>{item.quantity} Stück</span><span className="font-medium">{item.totalPrice.toFixed(2)} €</span></div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="hidden sm:block"><Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead>Produkt</TableHead>
@@ -285,12 +295,12 @@ export default function OrdersPage() {
                             </TableRow>
                           ))}
                         </TableBody>
-                      </Table>
-                      <div className="flex justify-between items-center mt-4 pt-4 border-t gap-4">
+                      </Table></div>
+                      <div className="flex flex-wrap justify-between items-center mt-4 pt-4 border-t gap-4">
                         <span className="text-sm text-muted-foreground">
                           Kampagne: {getCampaignName(order.campaignId)}
                         </span>
-                        <div className="flex items-center gap-4">
+                        <div className="flex flex-wrap items-center gap-4">
                           <span className="font-semibold">
                             Gesamt: {order.totalAmount.toFixed(2)} €
                           </span>

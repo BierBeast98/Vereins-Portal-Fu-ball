@@ -187,7 +187,7 @@ export default function FieldsPage() {
   }, [conflicts]);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Platzbelegung</h1>
@@ -196,7 +196,7 @@ export default function FieldsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-md border bg-background" role="group" aria-label="Platz wählen">
+          <div className="inline-flex min-h-11 rounded-md border bg-background" role="group" aria-label="Platz wählen">
             <button
               type="button"
               className={`px-3 py-1.5 text-sm font-medium rounded-l-md border-r ${
@@ -217,7 +217,7 @@ export default function FieldsPage() {
             </button>
           </div>
           <Select value={filterTeam} onValueChange={setFilterTeam}>
-            <SelectTrigger className="w-40" data-testid="filter-team">
+            <SelectTrigger className="w-full sm:w-40" data-testid="filter-team">
               <SelectValue placeholder="Mannschaft" />
             </SelectTrigger>
             <SelectContent>
@@ -232,10 +232,10 @@ export default function FieldsPage() {
           <Button variant="outline" onClick={goToToday} data-testid="button-today">
             Heute
           </Button>
-          <Button variant="outline" size="icon" onClick={goToPrevWeek} data-testid="button-prev-week">
+          <Button variant="outline" size="icon" onClick={goToPrevWeek} aria-label="Vorherige Woche" data-testid="button-prev-week">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" onClick={goToNextWeek} data-testid="button-next-week">
+          <Button variant="outline" size="icon" onClick={goToNextWeek} aria-label="Nächste Woche" data-testid="button-next-week">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -269,7 +269,7 @@ export default function FieldsPage() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">{FIELD_LABELS[fieldView]}</CardTitle>
         </CardHeader>
-        <CardContent className="p-3 min-w-0 overflow-x-auto">
+        <CardContent className="p-3 min-w-0 overflow-x-auto" tabIndex={0} role="region" aria-label="Wöchentliche Platzbelegung, horizontal scrollbar"><p className="mb-3 text-xs text-muted-foreground sm:hidden">Nach links und rechts wischen, um alle Wochentage zu sehen.</p><div className="min-w-[640px]">
           <div
             className="grid gap-0.5 mb-1 w-full"
             style={{ gridTemplateColumns: "auto repeat(7, minmax(0, 1fr))" }}
@@ -303,7 +303,7 @@ export default function FieldsPage() {
                 {HOURS.map((hour) => (
                   <div
                     key={hour}
-                    className="text-[10px] text-muted-foreground text-right pr-1 flex-shrink-0"
+                    className="text-[10px] text-muted-foreground text-right pr-1 shrink-0"
                     style={{ height: ROW_HEIGHT }}
                   >
                     {hour}:00
@@ -370,7 +370,7 @@ export default function FieldsPage() {
               })}
             </div>
           </div>
-        </CardContent>
+        </div></CardContent>
       </Card>
 
       <div className="mt-4 pt-4 border-t">

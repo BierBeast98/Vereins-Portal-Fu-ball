@@ -199,8 +199,8 @@ export default function FestivalsPage() {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Feste</h1>
           <p className="text-muted-foreground">
@@ -222,7 +222,7 @@ export default function FestivalsPage() {
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-6">
                 <FormField
                   control={form.control}
                   name="name"
@@ -267,7 +267,7 @@ export default function FestivalsPage() {
                     </FormItem>
                   )}
                 />
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="startDate"
@@ -320,7 +320,7 @@ export default function FestivalsPage() {
                   control={form.control}
                   name="active"
                   render={({ field }) => (
-                    <FormItem className="flex items-center justify-between rounded-md border p-4">
+                    <FormItem className="flex items-start justify-between gap-3 rounded-md border p-4 [&>div]:min-w-0 [&>button]:shrink-0">
                       <div>
                         <FormLabel>Aktiv</FormLabel>
                         <FormDescription>
@@ -333,7 +333,7 @@ export default function FestivalsPage() {
                     </FormItem>
                   )}
                 />
-                <div className="flex justify-end gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                   <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Abbrechen
                   </Button>
@@ -369,9 +369,9 @@ export default function FestivalsPage() {
             return (
               <Card key={f.id}>
                 <CardHeader>
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 [&>div]:min-w-0">
                     <div>
-                      <CardTitle className="flex items-center gap-2">
+                      <CardTitle className="flex flex-wrap items-center gap-2">
                         {f.name}
                         <Badge variant={status.variant}>{status.label}</Badge>
                         {f.hasPassword && (
@@ -392,15 +392,15 @@ export default function FestivalsPage() {
                 {f.description && (
                   <CardContent className="text-sm text-muted-foreground">{f.description}</CardContent>
                 )}
-                <CardFooter className="flex items-center justify-between border-t pt-4">
-                  <div className="flex items-center gap-2">
+                <CardFooter className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-muted-foreground">Aktiv:</span>
                     <Switch
                       checked={f.active}
                       onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: f.id, active: checked })}
                     />
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     <Link href={`/admin/festivals/${f.id}`}>
                       <Button size="sm" variant="outline">
                         <Settings className="h-4 w-4 mr-1" /> Stände & Schichten

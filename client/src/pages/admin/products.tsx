@@ -411,8 +411,8 @@ export default function ProductsPage() {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Produkte</h1>
           <p className="text-muted-foreground">
@@ -438,8 +438,8 @@ export default function ProductsPage() {
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-6">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="name"
@@ -476,7 +476,7 @@ export default function ProductsPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="basePrice"
@@ -624,7 +624,7 @@ export default function ProductsPage() {
                     control={form.control}
                     name="initialsEnabled"
                     render={({ field }) => (
-                      <FormItem className="flex items-center justify-between">
+                      <FormItem className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <FormLabel>Initialien/Beflockung möglich</FormLabel>
                           <FormDescription>
@@ -689,7 +689,7 @@ export default function ProductsPage() {
                   control={form.control}
                   name="active"
                   render={({ field }) => (
-                    <FormItem className="flex items-center justify-between rounded-md border p-4">
+                    <FormItem className="flex items-start justify-between gap-3 rounded-md border p-4 [&>div]:min-w-0 [&>button]:shrink-0">
                       <div>
                         <FormLabel>Produkt aktiv</FormLabel>
                         <FormDescription>
@@ -707,7 +707,7 @@ export default function ProductsPage() {
                   )}
                 />
 
-                <div className="flex justify-end gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                   <Button
                     type="button"
                     variant="outline"
@@ -766,7 +766,7 @@ export default function ProductsPage() {
                 </div>
               </div>
               <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 [&>div]:min-w-0">
                   <div>
                     <CardTitle className="text-lg">{product.name}</CardTitle>
                     <CardDescription>
@@ -795,8 +795,8 @@ export default function ProductsPage() {
                   ))}
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-muted-foreground">Status:</span>
                     <Switch
                       checked={product.active}
@@ -806,7 +806,7 @@ export default function ProductsPage() {
                       data-testid={`switch-active-${product.id}`}
                     />
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     <Button
                       size="icon"
                       variant="ghost"

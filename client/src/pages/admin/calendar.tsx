@@ -1,3 +1,6 @@
+import { calendarWeek, shiftCalendarDate } from "@shared/calendar-week";
+import { hasPermission, usePortalAuth } from "@/lib/portal-auth";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 import { visibleCalendarMonths } from "@shared/calendar-months";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -81,6 +84,25 @@ function getDaysInMonth(year: number, month: number): Date[] {
   return days;
 }
 
+type DeleteTarget = { event: CalendarEvent; scope: "single" | "series" };
+
+function DeleteCalendarEventDialog({ target, onClose, onDeleted }: { target: DeleteTarget; onClose: () => void; onDeleted?: () => void }) {
+  const client = useQueryClient();
+  const { toast } = useToast();
+  const { data: auth } = usePortalAuth();
+  const canDelete = hasPermission(auth, "calendar.write");
+  const series = target.scope === "series" && Boolean(target.event.recurringGroupId);
+  const mutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", series ? `/api/calendar/events/recurring/${encodeURIComponent(target.event.recurringGroupId!)}` : `/api/calendar/events/${encodeURIComponent(target.event.id)}`, {}),
+    onSuccess: async () => {
+      await Promise.all([client.invalidateQueries({ queryKey: ["/api/calendar/events"] }), client.invalidateQueries({ queryKey: ["/api/calendar/conflicts"] }), client.invalidateQueries({ queryKey: ["/api/public/calendar/fields"] }), client.invalidateQueries({ queryKey: ["/api/public/training-schedule"] })]);
+      toast({ title: series ? "Terminserie gelöscht" : "Termin gelöscht" });
+      onClose(); onDeleted?.();
+    },
+  });
+  return <AlertDialog open onOpenChange={open => { if (!open && !mutation.isPending) onClose(); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{series ? "Gesamte Terminserie löschen?" : "Diesen Termin löschen?"}</AlertDialogTitle><AlertDialogDescription>{series ? "Alle Termine dieser Serie werden gelöscht, auch außerhalb des angezeigten Zeitraums." : "Dieser einzelne Termin wird dauerhaft aus dem Kalender gelöscht."}</AlertDialogDescription></AlertDialogHeader><div className="space-y-1 rounded-lg border bg-muted/30 p-3 text-sm"><p className="wrap-anywhere font-semibold">{target.event.title}</p><p>{target.event.date.split("-").reverse().join(".")} · {target.event.startTime}–{target.event.endTime} Uhr</p>{target.event.team && <p>{TEAM_LABELS[target.event.team]}</p>}</div>{mutation.error && <p role="alert" className="text-sm text-destructive">Löschen fehlgeschlagen. Bitte versuche es erneut.</p>}<AlertDialogFooter><Button type="button" variant="outline" disabled={mutation.isPending} onClick={onClose}>Abbrechen</Button><Button type="button" variant="destructive" disabled={mutation.isPending || !canDelete} onClick={() => mutation.mutate()} data-testid="button-confirm-delete-event">{mutation.isPending ? "Wird gelöscht …" : series ? "Gesamte Serie endgültig löschen" : "Termin endgültig löschen"}</Button></AlertDialogFooter></AlertDialogContent></AlertDialog>;
+}
+
 interface EventFormData {
   title: string;
   type: EventType;
@@ -131,6 +153,9 @@ function EventDialog({
   });
 
   const [showRawData, setShowRawData] = useState(false);
+  const [deleteScope, setDeleteScope] = useState<"single" | "series" | null>(null);
+  const { data: auth } = usePortalAuth();
+  const canWrite = hasPermission(auth, "calendar.write");
 
   // Calculate weekday name for selected date
   const selectedWeekday = useMemo(() => {
@@ -165,34 +190,6 @@ function EventDialog({
     },
     onError: () => {
       toast({ title: "Fehler beim Aktualisieren", variant: "destructive" });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("DELETE", `/api/calendar/events/${event!.id}`, {});
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
-      toast({ title: "Termin gelöscht" });
-      onClose();
-    },
-    onError: () => {
-      toast({ title: "Fehler beim Löschen", variant: "destructive" });
-    },
-  });
-
-  const deleteRecurringGroupMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("DELETE", `/api/calendar/events/recurring/${event!.recurringGroupId}`, {});
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
-      toast({ title: "Alle wiederkehrenden Termine gelöscht" });
-      onClose();
-    },
-    onError: () => {
-      toast({ title: "Fehler beim Löschen", variant: "destructive" });
     },
   });
 
@@ -250,6 +247,7 @@ function EventDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canWrite) return;
     
     const baseData: InsertCalendarEvent = {
       title: formData.title,
@@ -282,7 +280,7 @@ function EventDialog({
     }
   };
 
-  const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || createRecurringMutation.isPending || deleteRecurringGroupMutation.isPending || updateRecurringGroupMutation.isPending;
+  const isPending = createMutation.isPending || updateMutation.isPending || createRecurringMutation.isPending || updateRecurringGroupMutation.isPending;
 
   // Calculate how many recurring events will be created
   const recurringCount = useMemo(() => {
@@ -292,6 +290,7 @@ function EventDialog({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 min-w-0 flex flex-col">
+      <fieldset disabled={!canWrite} className="min-w-0 space-y-4">
 
       {/* Game summary card – shown only when type is "spiel" */}
       {formData.type === "spiel" && (
@@ -337,8 +336,8 @@ function EventDialog({
       {/* Section: Grunddaten */}
       <div className="space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Grunddaten</p>
-        <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
-          <div className="col-span-2 min-w-0">
+        <div className="grid grid-cols-1 gap-3 min-w-0 sm:grid-cols-2">
+          <div className="min-w-0 sm:col-span-2">
             <Label htmlFor="title">Titel</Label>
             <Input
               id="title"
@@ -411,7 +410,7 @@ function EventDialog({
       {/* Section: Zeit */}
       <div className="space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Zeit</p>
-        <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)" }}>
+        <div className="grid grid-cols-1 gap-3 min-w-0 sm:grid-cols-3">
           <div className="min-w-0">
             <Label htmlFor="date">Datum</Label>
             <Input
@@ -454,12 +453,12 @@ function EventDialog({
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spieldetails</p>
 
           {/* Home/Away segmented toggle */}
-          <div className="flex rounded-md border border-input overflow-hidden w-full" role="group" aria-label="Heim oder Auswärts">
+          <div className="flex flex-col rounded-md border border-input overflow-hidden w-full sm:flex-row" role="group" aria-label="Heim oder Auswärts">
             <button
               type="button"
               onClick={() => setFormData({ ...formData, isHomeGame: true })}
               data-testid="switch-home-game"
-              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${formData.isHomeGame ? "bg-green-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+              className={`flex-1 min-h-11 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${formData.isHomeGame ? "bg-green-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
             >
               <Home className="h-4 w-4" />
               Heimspiel
@@ -467,14 +466,14 @@ function EventDialog({
             <button
               type="button"
               onClick={() => setFormData({ ...formData, isHomeGame: false })}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${!formData.isHomeGame ? "bg-orange-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+              className={`flex-1 min-h-11 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${!formData.isHomeGame ? "bg-orange-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
             >
               <Bus className="h-4 w-4" />
               Auswärtsspiel
             </button>
           </div>
 
-          <div className="grid gap-3 min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
+          <div className="grid grid-cols-1 gap-3 min-w-0 sm:grid-cols-2">
             <div className="min-w-0">
               <Label htmlFor="opponent">Gegner</Label>
               <Input
@@ -566,6 +565,8 @@ function EventDialog({
         />
       </div>
 
+      </fieldset>
+
       {/* BFV Rohdaten – collapsible, collapsed by default */}
       {event?.bfvImported && event?.rawPayload != null && (
         <div className="rounded-lg border bg-muted/20 overflow-hidden">
@@ -596,16 +597,16 @@ function EventDialog({
       )}
 
       {/* Action buttons */}
-      <div className="flex justify-between gap-2 pt-2 flex-shrink-0 pb-2">
-        {event && (
-          <div className="flex gap-2">
+      <div className="flex flex-wrap justify-between gap-2 pt-2 shrink-0 pb-2">
+        {event && canWrite && (
+          <div className="flex flex-wrap gap-2">
             {event.recurringGroupId ? (
               <>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => deleteMutation.mutate()}
+                  onClick={() => setDeleteScope("single")}
                   disabled={isPending}
                   data-testid="button-delete-event"
                 >
@@ -616,7 +617,7 @@ function EventDialog({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  onClick={() => deleteRecurringGroupMutation.mutate()}
+                  onClick={() => setDeleteScope("series")}
                   disabled={isPending}
                   data-testid="button-delete-all-recurring"
                 >
@@ -628,7 +629,7 @@ function EventDialog({
               <Button
                 type="button"
                 variant="destructive"
-                onClick={() => deleteMutation.mutate()}
+                onClick={() => setDeleteScope("single")}
                 disabled={isPending}
                 data-testid="button-delete-event"
               >
@@ -638,11 +639,11 @@ function EventDialog({
             )}
           </div>
         )}
-        <div className="flex gap-2 ml-auto">
+        <div className="flex flex-wrap gap-2 sm:ml-auto">
           <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
-            Abbrechen
+            {canWrite ? "Abbrechen" : "Schließen"}
           </Button>
-          {event?.recurringGroupId ? (
+          {canWrite && (event?.recurringGroupId ? (
             <>
               <Button
                 type="button"
@@ -691,9 +692,10 @@ function EventDialog({
             <Button type="submit" disabled={isPending} data-testid="button-save-event">
               {event ? "Speichern" : "Erstellen"}
             </Button>
-          )}
+          ))}
         </div>
       </div>
+      {event && deleteScope && <DeleteCalendarEventDialog target={{ event, scope: deleteScope }} onClose={() => setDeleteScope(null)} onDeleted={onClose} />}
     </form>
   );
 }
@@ -739,10 +741,15 @@ function BfvImportButton() {
   );
 }
 
-type ViewMode = "year" | "month" | "day";
+type ViewMode = "year" | "month" | "week" | "day";
 
 export default function CalendarPage() {
   const { toast } = useToast();
+  const { data: auth } = usePortalAuth();
+  const canWrite = hasPermission(auth, "calendar.write");
+  const [weekAnchor, setWeekAnchor] = useState(formatDate(new Date()));
+  const week = useMemo(() => calendarWeek(weekAnchor), [weekAnchor]);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [showPastMonths, setShowPastMonths] = useState(false);
   const [monthLayout, setMonthLayout] = useState<"games" | "agenda">("games");
@@ -757,8 +764,8 @@ export default function CalendarPage() {
   const [filterField, setFilterField] = useState<string>("all");
   const [search, setSearch] = useState("");
 
-  const startDate = `${currentYear}-01-01`;
-  const endDate = `${currentYear}-12-31`;
+  const startDate = viewMode === "week" ? week.start : `${currentYear}-01-01`;
+  const endDate = viewMode === "week" ? week.end : `${currentYear}-12-31`;
 
   const { data: events = [], isLoading, error: eventsError, refetch: refetchEvents } = useQuery<CalendarEvent[]>({
     queryKey: ["/api/calendar/events", startDate, endDate],
@@ -814,6 +821,13 @@ export default function CalendarPage() {
     return map;
   }, [filteredEvents]);
 
+  function openWeek(date: string) {
+    setWeekAnchor(date); setSelectedDate(date); setCurrentYear(Number(date.slice(0, 4))); setSelectedMonth(Number(date.slice(5, 7)) - 1); setViewMode("week");
+  }
+  function editEvent(event: CalendarEvent) {
+    setEditingEvent(event); setSelectedDate(undefined); setDialogOpen(true);
+  }
+
   const handleExport = async () => {
     try {
       const response = await fetch(`/api/calendar/export?startDate=${startDate}&endDate=${endDate}&format=csv`);
@@ -837,6 +851,7 @@ export default function CalendarPage() {
     if (viewMode === "month") {
       const dayEvents = eventsByDate.get(dateStr) || [];
       if (dayEvents.length === 0) {
+        if (!canWrite) return;
         setSelectedDate(dateStr);
         setEditingEvent(undefined);
         setDialogOpen(true);
@@ -859,6 +874,7 @@ export default function CalendarPage() {
   };
 
   const openCreateDialog = (date?: string) => {
+    if (!canWrite) return;
     setEditingEvent(undefined);
     setSelectedDate(date);
     setDialogOpen(true);
@@ -867,7 +883,7 @@ export default function CalendarPage() {
   const goBack = () => {
     if (viewMode === "day") {
       setViewMode("month");
-    } else if (viewMode === "month") {
+    } else if (viewMode === "month" || viewMode === "week") {
       setViewMode("year");
     }
   };
@@ -923,7 +939,7 @@ export default function CalendarPage() {
   };
 
   // Kompakte Monatsraster: 12 Kacheln wie ein Wandkalender.
-  // Tag-Klick → Tagesansicht, Monatstitel-Klick → Monats-Liste.
+  // Tag oder Kalenderwoche öffnen die Wochenansicht; Monatstitel öffnet den Monat.
   const renderYearView = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
       {visibleCalendarMonths(currentYear, todayDate, showPastMonths).map(month => (
@@ -936,11 +952,8 @@ export default function CalendarPage() {
             eventsByDate={eventsByDate}
             conflictDates={conflictDates}
             todayStr={today}
-            onDayClick={(dateStr) => {
-              setSelectedMonth(month);
-              setSelectedDate(dateStr);
-              setViewMode("day");
-            }}
+            onDayClick={openWeek}
+            onWeekClick={openWeek}
             onTitleClick={() => {
               setSelectedMonth(month);
               setViewMode("month");
@@ -961,12 +974,12 @@ export default function CalendarPage() {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between gap-2">
-            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back" className="shrink-0 px-2 sm:px-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button variant="ghost" size="sm" onClick={goBack} aria-label="Zurück zur Jahresübersicht" data-testid="button-back" className="shrink-0 px-2 sm:px-3">
               <ArrowLeft className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">Zurück zur Jahresübersicht</span>
             </Button>
-            <CardTitle className="text-base sm:text-xl truncate">{MONTHS_DE[selectedMonth]} {currentYear}</CardTitle>
+            <CardTitle className="order-first w-full break-words text-center text-base sm:order-none sm:w-auto sm:text-xl">{MONTHS_DE[selectedMonth]} {currentYear}</CardTitle>
             <div className="flex gap-1 shrink-0">
               <Button
                 variant="outline"
@@ -1008,7 +1021,7 @@ export default function CalendarPage() {
             games.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{games.map(event => <button type="button" key={event.id} className={`rounded-lg border p-4 text-left transition-shadow hover:shadow-md ${getEventColorClass(event)}`} onClick={e => handleEventClick(event, e)} data-testid={`month-game-${event.id}`}>
               <p className="text-sm font-medium">{new Date(`${event.date}T12:00:00`).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}</p>
               <p className="mt-1 text-lg font-bold">{event.startTime}–{event.endTime} Uhr</p>
-              <p className="mt-2 font-semibold break-words">{event.title}</p>
+              <p className="mt-2 font-semibold wrap-break-word">{event.title}</p>
               {event.team && <p className="text-sm">{TEAM_LABELS[event.team]}</p>}
               {event.opponent && <p className="text-sm">Gegner: {event.opponent}</p>}
               <p className="mt-2 text-sm font-medium">{event.isHomeGame === false ? "Auswärtsspiel" : event.isHomeGame === true ? "Heimspiel" : "Spielort offen"} · {event.isHomeGame === false ? event.location || "Ort noch offen" : event.field ? FIELD_LABELS[event.field] : event.location || "Platz noch offen"}</p>
@@ -1076,6 +1089,8 @@ export default function CalendarPage() {
     );
   };
 
+  const renderWeekView = () => <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><Button variant="ghost" size="sm" onClick={() => setViewMode("year")}><ArrowLeft className="h-4 w-4" />Zum Jahr</Button><div className="order-first w-full text-center sm:order-none sm:w-auto"><CardTitle className="text-xl">KW {week.number} · {week.year}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{week.start.split("-").reverse().join(".")} bis {week.end.split("-").reverse().join(".")}</p></div><div className="flex gap-1"><Button variant="outline" size="icon" aria-label="Vorherige Woche" onClick={() => openWeek(shiftCalendarDate(week.start, -7))}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" size="icon" aria-label="Nächste Woche" onClick={() => openWeek(shiftCalendarDate(week.start, 7))}><ChevronRight className="h-4 w-4" /></Button></div></div></CardHeader><CardContent><div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-7">{week.days.map(day => <section key={day} className={`min-w-0 space-y-3 rounded-lg border p-3 ${day === today ? "border-primary bg-primary/5" : ""}`} aria-label={`Tag ${day}`}><h2 className="text-sm font-semibold">{new Date(`${day}T12:00:00`).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })}</h2>{(eventsByDate.get(day) ?? []).map(event => <div key={event.id} className={`space-y-2 rounded-lg p-2 ${getEventColorClass(event)}`} data-testid={`week-event-${event.id}`}><p className="text-xs font-medium">{event.startTime}–{event.endTime}</p><button type="button" className="block w-full wrap-anywhere text-left text-sm font-semibold underline-offset-2 hover:underline" onClick={() => editEvent(event)}>{event.title}</button>{event.team && <p className="text-xs">{TEAM_LABELS[event.team]}</p>}<p className="wrap-anywhere text-xs">{event.isHomeGame === false ? event.location || "Auswärtsspiel" : event.field ? FIELD_LABELS[event.field] : event.location || "Ort offen"}</p>{canWrite && <Button size="sm" variant="outline" className="w-full bg-background text-foreground" aria-label={`${event.title} löschen`} onClick={() => setDeleteTarget({ event, scope: "single" })}><Trash2 className="h-4 w-4" />Löschen</Button>}</div>)}{!eventsByDate.has(day) && <p className="text-xs text-muted-foreground">Keine Termine</p>}{canWrite && <Button size="sm" variant="ghost" className="w-full" onClick={() => openCreateDialog(day)} aria-label={`Termin am ${day} erstellen`}><Plus className="h-4 w-4" />Termin</Button>}</section>)}</div></CardContent></Card>;
+
   const renderDayView = () => {
     if (!selectedDate) return null;
     const dayEvents = eventsByDate.get(selectedDate) || [];
@@ -1084,12 +1099,12 @@ export default function CalendarPage() {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between gap-2">
-            <Button variant="ghost" size="sm" onClick={goBack} data-testid="button-back-day" className="shrink-0 px-2 sm:px-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button variant="ghost" size="sm" onClick={goBack} aria-label="Zurück zum Monat" data-testid="button-back-day" className="shrink-0 px-2 sm:px-3">
               <ArrowLeft className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">Zurück zum Monat</span>
             </Button>
-            <CardTitle className="text-sm sm:text-xl text-center truncate">
+            <CardTitle className="order-first w-full text-sm sm:order-none sm:w-auto sm:text-xl text-center">
               <span className="sm:hidden">
                 {date.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })}
               </span>
@@ -1097,20 +1112,20 @@ export default function CalendarPage() {
                 {date.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </span>
             </CardTitle>
-            <Button onClick={() => openCreateDialog(selectedDate)} data-testid="button-add-event-day" size="sm" className="shrink-0">
+            {canWrite && <Button onClick={() => openCreateDialog(selectedDate)} aria-label="Termin an diesem Tag erstellen" data-testid="button-add-event-day" size="sm" className="shrink-0">
               <Plus className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">Neuer Termin</span>
-            </Button>
+            </Button>}
           </div>
         </CardHeader>
         <CardContent>
           {dayEvents.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <p>Keine Termine an diesem Tag</p>
-              <Button className="mt-4" onClick={() => openCreateDialog(selectedDate)}>
+              {canWrite && <Button className="mt-4" onClick={() => openCreateDialog(selectedDate)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Termin erstellen
-              </Button>
+              </Button>}
             </div>
           ) : (
             <div className="space-y-2">
@@ -1124,7 +1139,7 @@ export default function CalendarPage() {
                   }}
                   data-testid={`day-event-${event.id}`}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <span className={`font-semibold ${isAwayGame(event) ? "italic" : ""}`}>
                       {isAwayGame(event) && <span className="mr-1">(A)</span>}
                       {event.title}
@@ -1151,11 +1166,12 @@ export default function CalendarPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 [&>div]:min-w-0">
           <div>
             <h1 className="text-2xl font-bold">
               {viewMode === "year" ? `Jahreskalender ${currentYear}` :
                viewMode === "month" ? `${MONTHS_DE[selectedMonth]} ${currentYear}` :
+               viewMode === "week" ? `Wochenansicht · KW ${week.number} ${week.year}` :
                `Tagesansicht ${currentYear}`}
             </h1>
             <p className="text-muted-foreground text-sm">
@@ -1163,19 +1179,19 @@ export default function CalendarPage() {
             </p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => openCreateDialog()} data-testid="button-add-event">
+            {canWrite && <DialogTrigger asChild>
+              <Button onClick={() => openCreateDialog()} data-testid="button-add-event" aria-label="Neuen Termin erstellen">
                 <Plus className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Neuer Termin</span>
               </Button>
-            </DialogTrigger>
+            </DialogTrigger>}
             <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[95vh] overflow-y-auto overflow-x-hidden pb-8">
               <DialogHeader>
                 <DialogTitle>
-                  {editingEvent ? "Termin bearbeiten" : "Neuer Termin"}
+                  {editingEvent ? (canWrite ? "Termin bearbeiten" : "Termin ansehen") : "Neuer Termin"}
                 </DialogTitle>
                 <DialogDescription>
-                  {editingEvent ? "Bearbeiten Sie die Termindetails" : "Erstellen Sie einen neuen Termin im Kalender"}
+                  {editingEvent ? (canWrite ? "Bearbeiten Sie die Termindetails" : "Termindetails ansehen") : "Erstellen Sie einen neuen Termin im Kalender"}
                 </DialogDescription>
               </DialogHeader>
               <EventDialog
@@ -1188,7 +1204,7 @@ export default function CalendarPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filterTeam} onValueChange={setFilterTeam}>
-            <SelectTrigger className="flex-1 min-w-[130px] sm:w-40" data-testid="filter-team">
+            <SelectTrigger className="w-full min-w-0 sm:w-40 sm:flex-1" data-testid="filter-team">
               <SelectValue placeholder="Mannschaft" />
             </SelectTrigger>
             <SelectContent>
@@ -1202,7 +1218,7 @@ export default function CalendarPage() {
           </Select>
 
           <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="flex-1 min-w-[120px] sm:w-40" data-testid="filter-type">
+            <SelectTrigger className="w-full min-w-0 sm:w-40 sm:flex-1" data-testid="filter-type">
               <SelectValue placeholder="Terminart" />
             </SelectTrigger>
             <SelectContent>
@@ -1216,12 +1232,12 @@ export default function CalendarPage() {
           </Select>
 
           <Select value={filterField} onValueChange={setFilterField}>
-            <SelectTrigger className="min-w-[130px] flex-1" aria-label="Nach Platz filtern"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full min-w-0 sm:flex-1" aria-label="Nach Platz filtern"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">Alle Plätze</SelectItem>{FIELDS.map(field => <SelectItem key={field} value={field}>{FIELD_LABELS[field]}</SelectItem>)}</SelectContent>
           </Select>
-          <Input className="min-w-[180px] flex-1" value={search} onChange={event => setSearch(event.target.value)} placeholder="Termin, Gegner oder Ort suchen" aria-label="Kalender durchsuchen" />
+          <Input className="w-full min-w-0 sm:flex-1" value={search} onChange={event => setSearch(event.target.value)} placeholder="Termin, Gegner oder Ort suchen" aria-label="Kalender durchsuchen" />
           {(filterTeam !== "all" || filterType !== "all" || filterField !== "all" || search) && <Button variant="ghost" size="sm" onClick={() => { setFilterTeam("all"); setFilterType("all"); setFilterField("all"); setSearch(""); }}>Filter zurücksetzen</Button>}
-          <Button variant="outline" onClick={handleExport} data-testid="button-export" size="sm">
+          <Button variant="outline" onClick={handleExport} aria-label="Kalender als CSV exportieren" data-testid="button-export" size="sm">
             <Download className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">CSV Export</span>
           </Button>
@@ -1233,9 +1249,10 @@ export default function CalendarPage() {
       <div className="flex flex-wrap items-center gap-2" aria-label="Kalenderansicht">
         <Button variant={viewMode === "year" ? "default" : "outline"} size="sm" onClick={() => setViewMode("year")}>Jahr</Button>
         <Button variant={viewMode === "month" ? "default" : "outline"} size="sm" onClick={() => setViewMode("month")}>Monat</Button>
+        <Button variant={viewMode === "week" ? "default" : "outline"} size="sm" onClick={() => viewMode !== "week" && openWeek((selectedDate?.startsWith(`${currentYear}-${String(selectedMonth + 1).padStart(2, "0")}-`) ? selectedDate : undefined) ?? (currentYear === todayDate.getFullYear() && selectedMonth === todayDate.getMonth() ? today : `${currentYear}-${String(selectedMonth + 1).padStart(2, "0")}-01`))}>Woche</Button>
         <span className="rounded-md bg-muted px-3 py-1 text-sm font-semibold">Kalenderjahr {currentYear}</span>
-        <Button variant="outline" size="sm" onClick={() => { setCurrentYear(todayDate.getFullYear()); setSelectedMonth(todayDate.getMonth()); setSelectedDate(today); setViewMode("day"); }}>Heute</Button>
-        <span className="text-xs text-muted-foreground">Monatstitel öffnet den Monat · Tag öffnet die Termine · Roter Rahmen zeigt Konflikte</span>
+        <Button variant="outline" size="sm" onClick={() => { if (viewMode === "year" || viewMode === "week") { openWeek(today); return; } setCurrentYear(todayDate.getFullYear()); setSelectedMonth(todayDate.getMonth()); setSelectedDate(today); setViewMode("day"); }}>Heute</Button>
+        <span className="text-xs text-muted-foreground">Tag oder KW öffnet die Woche · Dort Termine bearbeiten und löschen · Roter Rahmen zeigt Konflikte</span>
       </div>
       {eventsError && <div role="alert" className="rounded-lg border border-destructive p-4">Die Kalendertermine konnten nicht geladen werden. <Button variant="outline" size="sm" onClick={() => void refetchEvents()}>Erneut versuchen</Button></div>}
       {conflictsError && <p role="alert" className="rounded-lg border border-destructive p-4 text-sm">Die Konfliktprüfung ist momentan nicht verfügbar. Die angezeigten Termine wurden nicht auf Überschneidungen geprüft.</p>}
@@ -1275,7 +1292,7 @@ export default function CalendarPage() {
           <CardContent>
             <div className="space-y-2">
               {visibleConflicts.slice(0, 5).map((conflict, i) => (
-                <button key={i} type="button" className="block text-left text-sm underline underline-offset-4" onClick={() => { setSelectedDate(conflict.event1.date); setSelectedMonth(Number(conflict.event1.date.slice(5, 7)) - 1); setViewMode("day"); }}>
+                <button key={i} type="button" className="block text-left text-sm underline underline-offset-4" onClick={() => openWeek(conflict.event1.date)}>
                   <span className="font-medium">{new Date(`${conflict.event1.date}T12:00:00`).toLocaleDateString("de-DE")} · </span>
                   <span className="font-medium">{conflict.event1.title}</span>
                   {" & "}
@@ -1297,6 +1314,8 @@ export default function CalendarPage() {
       {viewMode === "year" && renderYearView()}
       {viewMode === "month" && renderMonthView()}
       {viewMode === "day" && renderDayView()}
+      {viewMode === "week" && renderWeekView()}
+      {deleteTarget && <DeleteCalendarEventDialog target={deleteTarget} onClose={() => setDeleteTarget(null)} />}
       
       {/* Mannschaftsfarben (Legende): Kräftig = Spiel, Hell mit Rand = Training */}
       <details className="mt-6 pt-4 border-t">

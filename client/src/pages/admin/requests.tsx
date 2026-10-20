@@ -345,8 +345,8 @@ export default function RequestsPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Vorschläge / Requests</h1>
           <p className="text-muted-foreground text-sm">
@@ -354,7 +354,7 @@ export default function RequestsPage() {
           </p>
         </div>
         <Select value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-full sm:w-40">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -382,7 +382,7 @@ export default function RequestsPage() {
             return (
             <button
               key={head.id}
-              className="w-full text-left border rounded-md px-3 py-2 hover:bg-muted/60 flex items-center justify-between gap-3"
+              className="w-full min-w-0 text-left border rounded-md px-3 py-3 hover:bg-muted/60 flex flex-wrap items-center justify-between gap-3 [&>div]:min-w-0 [&>div]:break-words"
               onClick={() => setSelectedGroup(group)}
             >
               <div>
@@ -646,7 +646,7 @@ function RequestDialog({ group, onClose, onSave, onApprove, onReject, isSaving =
           </div>
           {showOccurrences && (
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span className="font-medium">
                   {count > 1 ? `Serie mit ${count} Terminen` : "Termin"}
                   {excludedIds.size > 0 && (

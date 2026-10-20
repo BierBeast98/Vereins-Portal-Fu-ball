@@ -51,10 +51,10 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="bg-primary text-primary-foreground py-16 px-4 relative">
+      <div className="bg-primary text-primary-foreground py-12 sm:py-16 px-4 relative">
         <Link 
-          href="/admin/products" 
-          className="absolute top-4 right-4 text-primary-foreground/60 hover:text-primary-foreground text-sm flex items-center gap-1"
+          href="/admin"
+          className="absolute top-2 right-2 min-h-11 px-2 text-primary-foreground/60 hover:text-primary-foreground text-sm flex items-center gap-1"
           data-testid="link-header-admin"
         >
           <Lock className="h-4 w-4" />
@@ -78,7 +78,18 @@ export default function HomePage() {
       </div>
 
       <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-10">
-        <Link href="/trainingszeiten"><Button variant="outline" className="w-full sm:w-auto"><Calendar className="mr-2 h-4 w-4" />Trainingszeiten der Mannschaften ansehen</Button></Link>
+        {festivals && festivals.length > 0 && (
+          <a href="#feste-helfer" className="flex min-h-20 items-center gap-3 rounded-xl border-2 border-primary bg-primary/5 p-4 text-foreground md:hidden" data-testid="link-mobile-festivals">
+            <PartyPopper className="h-7 w-7 shrink-0 text-primary" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <span className="block text-lg font-bold">Feste & Helfer</span>
+              <span className="block text-sm">{festivals.length === 1 ? "Ein Fest wartet auf deine Unterstützung." : `${festivals.length} Feste – finde deine Helferschicht.`}</span>
+              <span className="mt-1 block text-sm font-semibold text-primary underline underline-offset-4">Helferschichten ansehen</span>
+            </div>
+            <ArrowRight className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+          </a>
+        )}
+        <Link href="/trainingszeiten" className="block"><Button variant="outline" className="w-full sm:w-auto"><Calendar className="mr-2 h-4 w-4" />Trainingszeiten ansehen</Button></Link>
         <Card>
           <CardHeader>
             <div className="flex items-start gap-3">
@@ -95,8 +106,8 @@ export default function HomePage() {
             </div>
           </CardHeader>
           <CardFooter>
-            <Link href="/organigramm">
-              <Button data-testid="button-open-organization">
+            <Link href="/organigramm" className="w-full sm:w-auto">
+              <Button className="w-full sm:w-auto" data-testid="button-open-organization">
                 Organigramm öffnen
                 <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
               </Button>
@@ -166,11 +177,14 @@ export default function HomePage() {
         )}
 
         {(festivalsLoading || (festivals && festivals.length > 0)) && (
-          <section className="pt-8 border-t">
-            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-2">
-              <PartyPopper className="h-6 w-6" />
-              Aktuelle Feste — Helfer gesucht!
-            </h2>
+          <section id="feste-helfer" aria-labelledby="feste-helfer-title" className="scroll-mt-6 pt-8 border-t">
+            <div className="mb-6 rounded-xl border border-primary/30 bg-primary/5 p-4">
+              <h2 id="feste-helfer-title" className="flex items-start gap-3 text-2xl font-bold">
+                <PartyPopper className="mt-1 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
+                Feste & Helferdienste
+              </h2>
+              <p className="mt-2 text-sm">Wähle ein Fest und finde deine Helferschicht. Jede Unterstützung zählt!</p>
+            </div>
             {festivalsLoading ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {[1, 2].map((i) => (
@@ -188,7 +202,7 @@ export default function HomePage() {
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
                 {festivals!.map((f) => (
-                  <Card key={f.id} className="hover-elevate">
+                  <Card key={f.id} className="hover-elevate border-primary/25">
                     <CardHeader>
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -219,7 +233,7 @@ export default function HomePage() {
                     <CardFooter>
                       <Link href={`/festival/${f.id}`} className="w-full">
                         <Button className="w-full">
-                          Helfer-Schicht eintragen
+                          Helferschichten ansehen
                           <ArrowRight className="h-4 w-4 ml-2" />
                         </Button>
                       </Link>
@@ -251,7 +265,7 @@ export default function HomePage() {
         <div className="pt-8 border-t">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <Lock className="h-4 w-4" />
-            <Link href="/admin/products" className="text-sm hover:underline">
+            <Link href="/admin" className="text-sm hover:underline">
               Admin-Bereich
             </Link>
           </div>

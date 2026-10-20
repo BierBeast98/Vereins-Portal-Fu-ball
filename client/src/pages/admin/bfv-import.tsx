@@ -129,7 +129,7 @@ export default function BfvImportPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">BFV-Import</h1>
         <p className="text-muted-foreground">
@@ -313,7 +313,7 @@ export default function BfvImportPage() {
       {warnings.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex flex-wrap items-center gap-2">
               <AlertCircle className="h-5 w-5" />
               Hinweise (z. B. Verlegungen)
             </CardTitle>
